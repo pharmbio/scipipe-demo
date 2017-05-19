@@ -8,12 +8,9 @@ import (
 func main() {
 	sp.InitLogInfo()
 
+	// ------------------------------------------------
 	// Set up paths
 	// ------------------------------------------------
-	// SCRATCHDIR=$(readlink -f $1)
-	// APPSDIR=$(readlink -f $2)
-	// REFDIR=$(readlink -f $3)
-	// DATADIR=$(readlink -f $4)
 
 	scratchDir := "tmp"
 	appsDir := "data/apps"
@@ -22,10 +19,8 @@ func main() {
 	dataDir := "data"
 
 	// ================================================================================
-	// Initial data download workflow
+	// Data Download part of the workflow
 	// ================================================================================
-
-	// Init processes
 
 	wf := sp.NewPipelineRunner()
 
@@ -120,20 +115,22 @@ func main() {
 
 	readsIdxQueueTumor := NewParamQueue(indexesTumor...)
 	wf.AddProcess(readsIdxQueueTumor)
-	// --------------------------------------------------------------------------------
 
+	// --------------------------------------------------------------------------------
+	// Sink
+	// --------------------------------------------------------------------------------
 	mainWfSink := sp.NewSink()
 	wf.AddProcess(mainWfSink)
 
-	// --------------------------------------------------------------------------------
+	// ================================================================================
 	// Connect network
-	// --------------------------------------------------------------------------------
+	// ================================================================================
+
 	sp.Connect(dlApps.Out["apps"], unzipApps.In["targz"])
 	sp.Connect(unzipApps.Out["tar"], untarApps.In["tar"])
-
 	sp.Connect(untarApps.Out["outdir"], appsDirFanOut.InFile)
 
-	// Normal
+	// Align Reads Normal
 	sp.Connect(appsDirFanOut.GetOutPort("normal"), appsDirMultiNormal.In)
 	sp.Connect(appsDirMultiNormal.Out, alignSamplesNormal.In["appsdir"])
 	sp.Connect(fqNormal1.Out, alignSamplesNormal.In["reads1"])
@@ -141,7 +138,7 @@ func main() {
 	readsIdxQueueNormal.Out.Connect(alignSamplesNormal.ParamPorts["index"])
 	mainWfSink.Connect(alignSamplesNormal.Out["bam"])
 
-	// Tumor
+	// Align Reads Tumor
 	sp.Connect(appsDirFanOut.GetOutPort("tumor"), appsDirMultiTumor.In)
 	sp.Connect(appsDirMultiTumor.Out, alignSamplesTumor.In["appsdir"])
 	sp.Connect(fqTumor1.Out, alignSamplesTumor.In["reads1"])
@@ -149,12 +146,16 @@ func main() {
 	readsIdxQueueTumor.Out.Connect(alignSamplesTumor.ParamPorts["index"])
 	mainWfSink.Connect(alignSamplesTumor.Out["bam"])
 
-	// --------------------------------------------------------------------------------
-	// Run main workflow
-	// --------------------------------------------------------------------------------
+	// ================================================================================
+	// Run workflow
+	// ================================================================================
+
 	wf.Run()
+
 }
 
+// ========================================================================================================================
+//
 // Martin's original script below:
 // #!/bin/bash
 //
