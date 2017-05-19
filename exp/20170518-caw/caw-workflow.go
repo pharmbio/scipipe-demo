@@ -2,6 +2,7 @@ package main
 
 import (
 	sp "github.com/scipipe/scipipe"
+	spcomp "github.com/scipipe/scipipe/components"
 )
 
 func main() {
@@ -40,64 +41,85 @@ func main() {
 	untarApps.SetPathStatic("outdir", dataDir+"/apps")
 	wf.AddProcess(untarApps)
 
-	appsDirMultipl := NewFileMultiplicator(5)
-	wf.AddProcess(appsDirMultipl)
+	appsDirFanOut := spcomp.NewFanOut()
+	wf.AddProcess(appsDirFanOut)
 
-	// # align samples
-	// echo -e "\naligning normal 1\n"
-	// bwa mem -R "@RG\tID:normal_1\tSM:normal\tLB:normal\tPL:illumina" -B 3 -t 4 -M $REFDIR/human_g1k_v37_decoy.fasta $DATADIR/tiny_normal_L001_R1.fastq.gz $DATADIR/tiny_normal_L001_R2.fastq.gz |   samtools view -bS -t $REFDIR/human_g1k_v37_decoy.fasta.fai - | samtools sort - > $SCRATCHDIR/normal_1.bam
-	// echo -e "\naligning normal 2\n"
-	// bwa mem -R "@RG\tID:normal_2\tSM:normal\tLB:normal\tPL:illumina" -B 3 -t 4 -M $REFDIR/human_g1k_v37_decoy.fasta $DATADIR/tiny_normal_L002_R1.fastq.gz $DATADIR/tiny_normal_L002_R2.fastq.gz |   samtools view -bS -t $REFDIR/human_g1k_v37_decoy.fasta.fai - | samtools sort - > $SCRATCHDIR/normal_2.bam
-	// echo -e "\naligning normal 4\n"
-	// bwa mem -R "@RG\tID:normal_4\tSM:normal\tLB:normal\tPL:illumina" -B 3 -t 4 -M $REFDIR/human_g1k_v37_decoy.fasta $DATADIR/tiny_normal_L004_R1.fastq.gz $DATADIR/tiny_normal_L004_R2.fastq.gz |   samtools view -bS -t $REFDIR/human_g1k_v37_decoy.fasta.fai - |   samtools sort - > $SCRATCHDIR/normal_4.bam
-	// echo -e "\naligning normal 7\n"
-	// bwa mem -R "@RG\tID:normal_7\tSM:normal\tLB:normal\tPL:illumina" -B 3 -t 4 -M $REFDIR/human_g1k_v37_decoy.fasta $DATADIR/tiny_normal_L007_R1.fastq.gz $DATADIR/tiny_normal_L007_R2.fastq.gz |   samtools view -bS -t $REFDIR/human_g1k_v37_decoy.fasta.fai - |   samtools sort - > $SCRATCHDIR/normal_7.bam
-	// echo -e "\naligning normal 8\n"
-	// bwa mem -R "@RG\tID:normal_8\tSM:normal\tLB:normal\tPL:illumina" -B 3 -t 4 -M $REFDIR/human_g1k_v37_decoy.fasta $DATADIR/tiny_normal_L008_R1.fastq.gz $DATADIR/tiny_normal_L008_R2.fastq.gz |   samtools view -bS -t $REFDIR/human_g1k_v37_decoy.fasta.fai - |   samtools sort - > $SCRATCHDIR/normal_8.bam
+	appsDirMultiNormal := NewFileMultiplicator(5)
+	wf.AddProcess(appsDirMultiNormal)
 
-	//alignSamples.SetPathStatic("reads1", dataDir+"/tiny_normal_L001_R1.fastq.gz")
-	//alignSamples.SetPathStatic("reads2", dataDir+"/tiny_normal_L001_R2.fastq.gz")
+	appsDirMultiTumor := NewFileMultiplicator(6)
+	wf.AddProcess(appsDirMultiTumor)
 
 	// ================================================================================
 	// Main Workflow
 	// ================================================================================
 
-	// --------------------------------------------------------------------------------
-	// Align Samples
-	// --------------------------------------------------------------------------------
 	refFasta := refDir + "/human_g1k_v37_decoy.fasta"
 	refIndex := refDir + "/human_g1k_v37_decoy.fasta"
 
+	// --------------------------------------------------------------------------------
+	// Align Samples Normal
+	// --------------------------------------------------------------------------------
 	// Define process
-	alignSamples := sp.NewFromShell("alignSamples", "bwa mem -R \"@RG\tID:normal_{p:index}\tSM:normal\tLB:normal\tPL:illumina\" -B 3 -t 4 -M "+refFasta+" {i:reads1} {i:reads2}"+
+	alignSamplesNormal := sp.NewFromShell("alignSamplesNormal", "bwa mem -R \"@RG\tID:normal_{p:index}\tSM:normal\tLB:normal\tPL:illumina\" -B 3 -t 4 -M "+refFasta+" {i:reads1} {i:reads2}"+
 		"| samtools view -bS -t "+refIndex+" - "+
 		"| samtools sort - > {o:bam} # {i:appsdir}")
-
 	// Create output file format
-	alignSamples.PathFormatters["bam"] = func(t *sp.SciTask) string {
+	alignSamplesNormal.PathFormatters["bam"] = func(t *sp.SciTask) string {
 		outPath := scratchDir + "/normal_" + t.Params["index"] + ".bam"
 		return outPath
 	}
-	wf.AddProcess(alignSamples)
+	wf.AddProcess(alignSamplesNormal)
 
-	// Loop over indexes, and create parameters and file paths and send to alignSamples
-	indexes := []string{"1", "2", "4", "7", "8"}
-	reads1Paths := []string{}
-	reads2Paths := []string{}
-	for _, idx := range indexes {
-		reads1Paths = append(reads1Paths, origDataDir+"/tiny_normal_L00"+idx+"_R1.fastq.gz")
-		reads2Paths = append(reads2Paths, origDataDir+"/tiny_normal_L00"+idx+"_R2.fastq.gz")
+	// Loop over indexes, and create parameters and file paths and send to alignSamplesNormal
+	indexesNormal := []string{"1", "2", "4", "7", "8"}
+	fqPathsNormal1 := []string{}
+	fqPathsNormal2 := []string{}
+	for _, idx := range indexesNormal {
+		fqPathsNormal1 = append(fqPathsNormal1, origDataDir+"/tiny_normal_L00"+idx+"_R1.fastq.gz")
+		fqPathsNormal2 = append(fqPathsNormal2, origDataDir+"/tiny_normal_L00"+idx+"_R2.fastq.gz")
 	}
 
-	reads1FileQueue := sp.NewIPQueue(reads1Paths...)
-	wf.AddProcess(reads1FileQueue)
+	fqNormal1 := sp.NewIPQueue(fqPathsNormal1...)
+	wf.AddProcess(fqNormal1)
 
-	reads2FileQueue := sp.NewIPQueue(reads1Paths...)
-	wf.AddProcess(reads2FileQueue)
+	fqNormal2 := sp.NewIPQueue(fqPathsNormal2...)
+	wf.AddProcess(fqNormal2)
 
-	readsIndexQueue := NewParamQueue(indexes...)
-	wf.AddProcess(readsIndexQueue)
+	readsIdxQueueNormal := NewParamQueue(indexesNormal...)
+	wf.AddProcess(readsIdxQueueNormal)
 
+	// --------------------------------------------------------------------------------
+	// Align Samples Tumor
+	// --------------------------------------------------------------------------------
+	// Define process
+	alignSamplesTumor := sp.NewFromShell("alignSamplesTumor", "bwa mem -R \"@RG\tID:tumor_{p:index}\tSM:tumor\tLB:tumor\tPL:illumina\" -B 3 -t 4 -M "+refFasta+" {i:reads1} {i:reads2}"+
+		"| samtools view -bS -t "+refIndex+" - "+
+		"| samtools sort - > {o:bam} # {i:appsdir}")
+	// Create output file format
+	alignSamplesTumor.PathFormatters["bam"] = func(t *sp.SciTask) string {
+		outPath := scratchDir + "/tumor_" + t.Params["index"] + ".bam"
+		return outPath
+	}
+	wf.AddProcess(alignSamplesTumor)
+
+	// Loop over indexes, and create parameters and file paths and send to alignSamplesTumor
+	indexesTumor := []string{"1", "2", "3", "5", "6", "7"}
+	fqPathsTumor1 := []string{}
+	fqPathsTumor2 := []string{}
+	for _, idx := range indexesTumor {
+		fqPathsTumor1 = append(fqPathsTumor1, origDataDir+"/tiny_tumor_L00"+idx+"_R1.fastq.gz")
+		fqPathsTumor2 = append(fqPathsTumor2, origDataDir+"/tiny_tumor_L00"+idx+"_R2.fastq.gz")
+	}
+
+	fqTumor1 := sp.NewIPQueue(fqPathsTumor1...)
+	wf.AddProcess(fqTumor1)
+
+	fqTumor2 := sp.NewIPQueue(fqPathsTumor2...)
+	wf.AddProcess(fqTumor2)
+
+	readsIdxQueueTumor := NewParamQueue(indexesTumor...)
+	wf.AddProcess(readsIdxQueueTumor)
 	// --------------------------------------------------------------------------------
 
 	mainWfSink := sp.NewSink()
@@ -109,14 +131,23 @@ func main() {
 	sp.Connect(dlApps.Out["apps"], unzipApps.In["targz"])
 	sp.Connect(unzipApps.Out["tar"], untarApps.In["tar"])
 
-	sp.Connect(untarApps.Out["outdir"], appsDirMultipl.In)
-	sp.Connect(appsDirMultipl.Out, alignSamples.In["appsdir"])
+	sp.Connect(untarApps.Out["outdir"], appsDirFanOut.InFile)
 
-	sp.Connect(reads1FileQueue.Out, alignSamples.In["reads1"])
-	sp.Connect(reads2FileQueue.Out, alignSamples.In["reads2"])
-	readsIndexQueue.Out.Connect(alignSamples.ParamPorts["index"])
+	// Normal
+	sp.Connect(appsDirFanOut.GetOutPort("normal"), appsDirMultiNormal.In)
+	sp.Connect(appsDirMultiNormal.Out, alignSamplesNormal.In["appsdir"])
+	sp.Connect(fqNormal1.Out, alignSamplesNormal.In["reads1"])
+	sp.Connect(fqNormal2.Out, alignSamplesNormal.In["reads2"])
+	readsIdxQueueNormal.Out.Connect(alignSamplesNormal.ParamPorts["index"])
+	mainWfSink.Connect(alignSamplesNormal.Out["bam"])
 
-	mainWfSink.Connect(alignSamples.Out["bam"])
+	// Tumor
+	sp.Connect(appsDirFanOut.GetOutPort("tumor"), appsDirMultiTumor.In)
+	sp.Connect(appsDirMultiTumor.Out, alignSamplesTumor.In["appsdir"])
+	sp.Connect(fqTumor1.Out, alignSamplesTumor.In["reads1"])
+	sp.Connect(fqTumor2.Out, alignSamplesTumor.In["reads2"])
+	readsIdxQueueTumor.Out.Connect(alignSamplesTumor.ParamPorts["index"])
+	mainWfSink.Connect(alignSamplesTumor.Out["bam"])
 
 	// --------------------------------------------------------------------------------
 	// Run main workflow
