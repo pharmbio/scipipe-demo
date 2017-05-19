@@ -26,32 +26,22 @@ func main() {
 
 	// Init processes
 
-	dlDataRun := sp.NewPipelineRunner()
+	wf := sp.NewPipelineRunner()
 
 	dlApps := sp.NewFromShell("dlApps", "wget http://uppnex.se/apps.tar.gz -O {o:apps}")
 	dlApps.SetPathStatic("apps", dataDir+"/uppnex_apps.tar.gz")
-	dlDataRun.AddProcess(dlApps)
+	wf.AddProcess(dlApps)
 
 	unzipApps := sp.NewFromShell("unzipApps", "zcat {i:targz} > {o:tar}")
 	unzipApps.SetPathReplace("targz", "tar", ".gz", "")
-	dlDataRun.AddProcess(unzipApps)
+	wf.AddProcess(unzipApps)
 
 	untarApps := sp.NewFromShell("untarApps", "tar -xvf {i:tar} -C "+dataDir+" # {o:outdir}")
 	untarApps.SetPathStatic("outdir", dataDir+"/apps")
-	dlDataRun.AddProcess(untarApps)
+	wf.AddProcess(untarApps)
 
-	dlDataSink := sp.NewSink()
-	dlDataRun.AddProcess(dlDataSink)
-
-	// Connect dependencies
-
-	sp.Connect(unzipApps.In["targz"], dlApps.Out["apps"])
-	sp.Connect(untarApps.In["tar"], unzipApps.Out["tar"])
-	dlDataSink.Connect(untarApps.Out["outdir"])
-
-	// Run
-
-	dlDataRun.Run()
+	appsDirMultipl := NewFileMultiplicator(5)
+	wf.AddProcess(appsDirMultipl)
 
 	// # align samples
 	// echo -e "\naligning normal 1\n"
@@ -72,8 +62,6 @@ func main() {
 	// Main Workflow
 	// ================================================================================
 
-	mainWfRun := sp.NewPipelineRunner()
-
 	// --------------------------------------------------------------------------------
 	// Align Samples
 	// --------------------------------------------------------------------------------
@@ -83,14 +71,14 @@ func main() {
 	// Define process
 	alignSamples := sp.NewFromShell("alignSamples", "bwa mem -R \"@RG\tID:normal_{p:index}\tSM:normal\tLB:normal\tPL:illumina\" -B 3 -t 4 -M "+refFasta+" {i:reads1} {i:reads2}"+
 		"| samtools view -bS -t "+refIndex+" - "+
-		"| samtools sort - > {o:bam}")
+		"| samtools sort - > {o:bam} # {i:appsdir}")
 
 	// Create output file format
 	alignSamples.PathFormatters["bam"] = func(t *sp.SciTask) string {
 		outPath := scratchDir + "/normal_" + t.Params["index"] + ".bam"
 		return outPath
 	}
-	mainWfRun.AddProcess(alignSamples)
+	wf.AddProcess(alignSamples)
 
 	// Loop over indexes, and create parameters and file paths and send to alignSamples
 	indexes := []string{"1", "2", "4", "7", "8"}
@@ -102,31 +90,38 @@ func main() {
 	}
 
 	reads1FileQueue := sp.NewIPQueue(reads1Paths...)
-	mainWfRun.AddProcess(reads1FileQueue)
+	wf.AddProcess(reads1FileQueue)
 
 	reads2FileQueue := sp.NewIPQueue(reads1Paths...)
-	mainWfRun.AddProcess(reads2FileQueue)
+	wf.AddProcess(reads2FileQueue)
 
 	readsIndexQueue := NewParamQueue(indexes...)
-	mainWfRun.AddProcess(readsIndexQueue)
+	wf.AddProcess(readsIndexQueue)
 
 	// --------------------------------------------------------------------------------
 
 	mainWfSink := sp.NewSink()
-	mainWfRun.AddProcess(mainWfSink)
+	wf.AddProcess(mainWfSink)
 
 	// --------------------------------------------------------------------------------
 	// Connect network
 	// --------------------------------------------------------------------------------
-	readsIndexQueue.Out.Connect(alignSamples.ParamPorts["index"])
+	sp.Connect(dlApps.Out["apps"], unzipApps.In["targz"])
+	sp.Connect(unzipApps.Out["tar"], untarApps.In["tar"])
+
+	sp.Connect(untarApps.Out["outdir"], appsDirMultipl.In)
+	sp.Connect(appsDirMultipl.Out, alignSamples.In["appsdir"])
+
 	sp.Connect(reads1FileQueue.Out, alignSamples.In["reads1"])
 	sp.Connect(reads2FileQueue.Out, alignSamples.In["reads2"])
+	readsIndexQueue.Out.Connect(alignSamples.ParamPorts["index"])
+
 	mainWfSink.Connect(alignSamples.Out["bam"])
 
 	// --------------------------------------------------------------------------------
 	// Run main workflow
 	// --------------------------------------------------------------------------------
-	mainWfRun.Run()
+	wf.Run()
 }
 
 // Martin's original script below:
@@ -230,4 +225,36 @@ func (p *ParamQueue) Run() {
 
 func (p *ParamQueue) IsConnected() bool {
 	return p.Out.IsConnected()
+}
+
+// ================================================================================
+
+type FileMultiplicator struct {
+	sp.Process
+	In                   *sp.FilePort
+	Out                  *sp.FilePort
+	multiplicationFactor int
+}
+
+func NewFileMultiplicator(multiplicationFactor int) *FileMultiplicator {
+	return &FileMultiplicator{
+		In:                   sp.NewFilePort(),
+		Out:                  sp.NewFilePort(),
+		multiplicationFactor: multiplicationFactor,
+	}
+}
+
+func (p *FileMultiplicator) Run() {
+	defer p.Out.Close()
+
+	for inFile := range p.In.Chan {
+		path := inFile.GetPath()
+		for i := 0; i < p.multiplicationFactor; i++ {
+			p.Out.Chan <- sp.NewInformationPacket(path)
+		}
+	}
+}
+
+func (p *FileMultiplicator) IsConnected() bool {
+	return p.In.IsConnected() && p.Out.IsConnected()
 }
