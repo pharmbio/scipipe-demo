@@ -7,9 +7,9 @@ import (
 func main() {
 	sp.InitLogInfo()
 
-	runner := sp.NewPipelineRunner()
-
 	// Init processes
+
+	runner := sp.NewPipelineRunner()
 
 	dlApps := sp.NewFromShell("dlApps", "wget http://uppnex.se/apps.tar.gz -O {o:apps}")
 	dlApps.SetPathStatic("apps", "data/uppnex_apps.tar.gz")
@@ -28,9 +28,11 @@ func main() {
 
 	// Connect dependencies
 
-	unzipApps.In["targz"].Connect(dlApps.Out["apps"])
-	untarApps.In["tar"].Connect(unzipApps.Out["tar"])
+	sp.Connect(unzipApps.In["targz"], dlApps.Out["apps"])
+	sp.Connect(untarApps.In["tar"], unzipApps.Out["tar"])
 	sink.Connect(untarApps.Out["outdir"])
+
+	// Run
 
 	runner.Run()
 }
