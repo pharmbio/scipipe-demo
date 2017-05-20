@@ -12,7 +12,7 @@ func main() {
 	// Set up paths
 	// ------------------------------------------------
 
-	scratchDir := "tmp"
+	tmpDir := "tmp"
 	appsDir := "data/apps"
 	refDir := appsDir + "/pipeline_test/ref"
 	origDataDir := appsDir + "/pipeline_test/ref"
@@ -61,7 +61,7 @@ func main() {
 		"| samtools sort - > {o:bam} # {i:appsdir}")
 	// Create output file format
 	alignSamplesNormal.PathFormatters["bam"] = func(t *sp.SciTask) string {
-		outPath := scratchDir + "/normal_" + t.Params["index"] + ".bam"
+		outPath := tmpDir + "/normal_" + t.Params["index"] + ".bam"
 		return outPath
 	}
 	wf.AddProcess(alignSamplesNormal)
@@ -93,7 +93,7 @@ func main() {
 		"| samtools sort - > {o:bam} # {i:appsdir}")
 	// Create output file format
 	alignSamplesTumor.PathFormatters["bam"] = func(t *sp.SciTask) string {
-		outPath := scratchDir + "/tumor_" + t.Params["index"] + ".bam"
+		outPath := tmpDir + "/tumor_" + t.Params["index"] + ".bam"
 		return outPath
 	}
 	wf.AddProcess(alignSamplesTumor)
@@ -117,6 +117,27 @@ func main() {
 	wf.AddProcess(readsIdxQueueTumor)
 
 	// --------------------------------------------------------------------------------
+	// Merge BAMs
+	// --------------------------------------------------------------------------------
+	// echo -e "\nmerging bams\n"
+	// samtools merge -f tumor.bam tumor_1.bam tumor_2.bam tumor_3.bam tumor_5.bam tumor_6.bam tumor_7.bam
+	// samtools merge -f normal.bam normal_1.bam normal_2.bam normal_4.bam normal_7.bam normal_8.bam
+
+	streamToSubstreamNormal := spcomp.NewStreamToSubStream()
+	wf.AddProcess(streamToSubstreamNormal)
+
+	streamToSubstreamTumor := spcomp.NewStreamToSubStream()
+	wf.AddProcess(streamToSubstreamTumor)
+
+	mergeBamsNormal := sp.NewFromShell("mergeBamsNormal", "samtools merge -f {o:mergedbam} {i:bams:r: }")
+	mergeBamsNormal.SetPathStatic("mergedbam", tmpDir+"/normal.bam")
+	wf.AddProcess(mergeBamsNormal)
+
+	mergeBamsTumor := sp.NewFromShell("mergeBamsTumor", "samtools merge -f {o:mergedbam} {i:bams:r: }")
+	mergeBamsTumor.SetPathStatic("mergedbam", tmpDir+"/tumor.bam")
+	wf.AddProcess(mergeBamsTumor)
+
+	// --------------------------------------------------------------------------------
 	// Sink
 	// --------------------------------------------------------------------------------
 	mainWfSink := sp.NewSink()
@@ -126,25 +147,33 @@ func main() {
 	// Connect network
 	// ================================================================================
 
-	sp.Connect(dlApps.Out["apps"], unzipApps.In["targz"])
-	sp.Connect(unzipApps.Out["tar"], untarApps.In["tar"])
-	sp.Connect(untarApps.Out["outdir"], appsDirFanOut.InFile)
+	sp.Connect(dlApps.GetOutPort("apps"), unzipApps.GetInPort("targz"))
+	sp.Connect(unzipApps.GetOutPort("tar"), untarApps.GetInPort("tar"))
+	sp.Connect(untarApps.GetOutPort("outdir"), appsDirFanOut.InFile)
 
 	// Align Reads Normal
 	sp.Connect(appsDirFanOut.GetOutPort("normal"), appsDirMultiNormal.In)
 	sp.Connect(appsDirMultiNormal.Out, alignSamplesNormal.In["appsdir"])
-	sp.Connect(fqNormal1.Out, alignSamplesNormal.In["reads1"])
-	sp.Connect(fqNormal2.Out, alignSamplesNormal.In["reads2"])
+	sp.Connect(fqNormal1.Out, alignSamplesNormal.GetInPort("reads1"))
+	sp.Connect(fqNormal2.Out, alignSamplesNormal.GetInPort("reads2"))
 	readsIdxQueueNormal.Out.Connect(alignSamplesNormal.ParamPorts["index"])
-	mainWfSink.Connect(alignSamplesNormal.Out["bam"])
+
+	sp.Connect(alignSamplesNormal.GetOutPort("bam"), streamToSubstreamNormal.In)
+	mergeBamsNormal.GetInPort("bams").Connect(streamToSubstreamNormal.OutSubStream)
+
+	mainWfSink.Connect(mergeBamsNormal.GetOutPort("mergedbam"))
 
 	// Align Reads Tumor
 	sp.Connect(appsDirFanOut.GetOutPort("tumor"), appsDirMultiTumor.In)
-	sp.Connect(appsDirMultiTumor.Out, alignSamplesTumor.In["appsdir"])
-	sp.Connect(fqTumor1.Out, alignSamplesTumor.In["reads1"])
-	sp.Connect(fqTumor2.Out, alignSamplesTumor.In["reads2"])
+	sp.Connect(appsDirMultiTumor.Out, alignSamplesTumor.GetInPort("appsdir"))
+	sp.Connect(fqTumor1.Out, alignSamplesTumor.GetInPort("reads1"))
+	sp.Connect(fqTumor2.Out, alignSamplesTumor.GetInPort("reads2"))
 	readsIdxQueueTumor.Out.Connect(alignSamplesTumor.ParamPorts["index"])
-	mainWfSink.Connect(alignSamplesTumor.Out["bam"])
+
+	sp.Connect(alignSamplesTumor.GetOutPort("bam"), streamToSubstreamTumor.In)
+	mergeBamsTumor.GetInPort("bams").Connect(streamToSubstreamTumor.OutSubStream)
+
+	mainWfSink.Connect(mergeBamsTumor.GetOutPort("mergedbam"))
 
 	// ================================================================================
 	// Run workflow
