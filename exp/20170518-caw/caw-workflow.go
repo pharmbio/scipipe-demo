@@ -36,14 +36,8 @@ func main() {
 	untarApps.SetPathStatic("outdir", dataDir+"/apps")
 	wf.AddProcess(untarApps)
 
-	appsDirFanOut := spcomp.NewFanOut()
-	wf.AddProcess(appsDirFanOut)
-
-	appsDirMultiNormal := NewFileMultiplicator(5)
-	wf.AddProcess(appsDirMultiNormal)
-
-	appsDirMultiTumor := NewFileMultiplicator(6)
-	wf.AddProcess(appsDirMultiTumor)
+	appsDirMultiplicator := NewFileMultiplicator(11)
+	wf.AddProcess(appsDirMultiplicator)
 
 	// ================================================================================
 	// Main Workflow
@@ -53,68 +47,48 @@ func main() {
 	refIndex := refDir + "/human_g1k_v37_decoy.fasta.fai"
 
 	// --------------------------------------------------------------------------------
-	// Align Samples Normal
+	// Align Samples
 	// --------------------------------------------------------------------------------
-	// Define process
-	alignSamplesNormal := sp.NewFromShell("alignSamplesNormal", "bwa mem -R \"@RG\tID:normal_{p:index}\tSM:normal\tLB:normal\tPL:illumina\" -B 3 -t 4 -M "+refFasta+" {i:reads1} {i:reads2}"+
-		"| samtools view -bS -t "+refIndex+" - "+
-		"| samtools sort - > {o:bam} # {i:appsdir}")
-	// Create output file format
-	alignSamplesNormal.PathFormatters["bam"] = func(t *sp.SciTask) string {
-		outPath := tmpDir + "/normal_" + t.Params["index"] + ".bam"
-		return outPath
-	}
-	wf.AddProcess(alignSamplesNormal)
 
-	// Loop over indexes, and create parameters and file paths and send to alignSamplesNormal
+	// Create File queues for all the samples
 	indexesNormal := []string{"1", "2", "4", "7", "8"}
-	fqPathsNormal1 := []string{}
-	fqPathsNormal2 := []string{}
+	fqPaths1 := []string{}
+	fqPaths2 := []string{}
 	for _, idx := range indexesNormal {
-		fqPathsNormal1 = append(fqPathsNormal1, origDataDir+"/tiny_normal_L00"+idx+"_R1.fastq.gz")
-		fqPathsNormal2 = append(fqPathsNormal2, origDataDir+"/tiny_normal_L00"+idx+"_R2.fastq.gz")
+		fqPaths1 = append(fqPaths1, origDataDir+"/tiny_normal_L00"+idx+"_R1.fastq.gz")
+		fqPaths2 = append(fqPaths2, origDataDir+"/tiny_normal_L00"+idx+"_R2.fastq.gz")
+	}
+	indexesTumor := []string{"1", "2", "3", "5", "6", "7"}
+	for _, idx := range indexesTumor {
+		fqPaths1 = append(fqPaths1, origDataDir+"/tiny_tumor_L00"+idx+"_R1.fastq.gz")
+		fqPaths2 = append(fqPaths2, origDataDir+"/tiny_tumor_L00"+idx+"_R2.fastq.gz")
 	}
 
-	fqNormal1 := sp.NewIPQueue(fqPathsNormal1...)
-	wf.AddProcess(fqNormal1)
+	readsFQ1 := sp.NewIPQueue(fqPaths1...)
+	wf.AddProcess(readsFQ1)
 
-	fqNormal2 := sp.NewIPQueue(fqPathsNormal2...)
-	wf.AddProcess(fqNormal2)
+	readsFQ2 := sp.NewIPQueue(fqPaths2...)
+	wf.AddProcess(readsFQ2)
 
-	readsIdxQueueNormal := NewParamQueue(indexesNormal...)
-	wf.AddProcess(readsIdxQueueNormal)
+	readsIdxQueue := NewParamQueue(append(indexesNormal, indexesTumor...)...)
+	wf.AddProcess(readsIdxQueue)
 
-	// --------------------------------------------------------------------------------
-	// Align Samples Tumor
-	// --------------------------------------------------------------------------------
+	readsKinds := []string{"normal", "normal", "normal", "normal", "normal",
+		"tumor", "tumor", "tumor", "tumor", "tumor", "tumor"}
+	readsKindsQueueAlign := NewParamQueue(readsKinds...)
+	wf.AddProcess(readsKindsQueueAlign)
+	readsKindsQueueMerge := NewParamQueue(readsKinds...)
+	wf.AddProcess(readsKindsQueueMerge)
+
 	// Define process
-	alignSamplesTumor := sp.NewFromShell("alignSamplesTumor", "bwa mem -R \"@RG\tID:tumor_{p:index}\tSM:tumor\tLB:tumor\tPL:illumina\" -B 3 -t 4 -M "+refFasta+" {i:reads1} {i:reads2}"+
+	alignSamples := sp.NewFromShell("alignSamplesTumor", "bwa mem -R \"@RG\tID:{p:readskind}_{p:index}\tSM:tumor\tLB:tumor\tPL:illumina\" -B 3 -t 4 -M "+refFasta+" {i:reads1} {i:reads2}"+
 		"| samtools view -bS -t "+refIndex+" - "+
 		"| samtools sort - > {o:bam} # {i:appsdir}")
-	// Create output file format
-	alignSamplesTumor.PathFormatters["bam"] = func(t *sp.SciTask) string {
-		outPath := tmpDir + "/tumor_" + t.Params["index"] + ".bam"
+	alignSamples.PathFormatters["bam"] = func(t *sp.SciTask) string {
+		outPath := tmpDir + "/" + t.Params["readskind"] + "_" + t.Params["index"] + ".bam"
 		return outPath
 	}
-	wf.AddProcess(alignSamplesTumor)
-
-	// Loop over indexes, and create parameters and file paths and send to alignSamplesTumor
-	indexesTumor := []string{"1", "2", "3", "5", "6", "7"}
-	fqPathsTumor1 := []string{}
-	fqPathsTumor2 := []string{}
-	for _, idx := range indexesTumor {
-		fqPathsTumor1 = append(fqPathsTumor1, origDataDir+"/tiny_tumor_L00"+idx+"_R1.fastq.gz")
-		fqPathsTumor2 = append(fqPathsTumor2, origDataDir+"/tiny_tumor_L00"+idx+"_R2.fastq.gz")
-	}
-
-	fqTumor1 := sp.NewIPQueue(fqPathsTumor1...)
-	wf.AddProcess(fqTumor1)
-
-	fqTumor2 := sp.NewIPQueue(fqPathsTumor2...)
-	wf.AddProcess(fqTumor2)
-
-	readsIdxQueueTumor := NewParamQueue(indexesTumor...)
-	wf.AddProcess(readsIdxQueueTumor)
+	wf.AddProcess(alignSamples)
 
 	// --------------------------------------------------------------------------------
 	// Merge BAMs
@@ -123,19 +97,15 @@ func main() {
 	// samtools merge -f tumor.bam tumor_1.bam tumor_2.bam tumor_3.bam tumor_5.bam tumor_6.bam tumor_7.bam
 	// samtools merge -f normal.bam normal_1.bam normal_2.bam normal_4.bam normal_7.bam normal_8.bam
 
-	streamToSubstreamNormal := spcomp.NewStreamToSubStream()
-	wf.AddProcess(streamToSubstreamNormal)
+	streamToSubstream := spcomp.NewStreamToSubStream()
+	wf.AddProcess(streamToSubstream)
 
-	streamToSubstreamTumor := spcomp.NewStreamToSubStream()
-	wf.AddProcess(streamToSubstreamTumor)
-
-	mergeBamsNormal := sp.NewFromShell("mergeBamsNormal", "samtools merge -f {o:mergedbam} {i:bams:r: }")
-	mergeBamsNormal.SetPathStatic("mergedbam", tmpDir+"/normal.bam")
-	wf.AddProcess(mergeBamsNormal)
-
-	mergeBamsTumor := sp.NewFromShell("mergeBamsTumor", "samtools merge -f {o:mergedbam} {i:bams:r: }")
-	mergeBamsTumor.SetPathStatic("mergedbam", tmpDir+"/tumor.bam")
-	wf.AddProcess(mergeBamsTumor)
+	mergeBams := sp.NewFromShell("mergeBams", "samtools merge -f {o:mergedbam} {i:bams:r: } # {p:readskind}")
+	mergeBams.SetPathStatic("mergedbam", tmpDir+"/normal.bam")
+	mergeBams.PathFormatters["mergedbam"] = func(t *sp.SciTask) string {
+		return tmpDir + "/" + t.Params["readskind"] + ".bam"
+	}
+	wf.AddProcess(mergeBams)
 
 	// --------------------------------------------------------------------------------
 	// Sink
@@ -149,31 +119,20 @@ func main() {
 
 	sp.Connect(dlApps.GetOutPort("apps"), unzipApps.GetInPort("targz"))
 	sp.Connect(unzipApps.GetOutPort("tar"), untarApps.GetInPort("tar"))
-	sp.Connect(untarApps.GetOutPort("outdir"), appsDirFanOut.InFile)
+	sp.Connect(untarApps.GetOutPort("outdir"), appsDirMultiplicator.In)
 
-	// Align Reads Normal
-	sp.Connect(appsDirFanOut.GetOutPort("normal"), appsDirMultiNormal.In)
-	sp.Connect(appsDirMultiNormal.Out, alignSamplesNormal.In["appsdir"])
-	sp.Connect(fqNormal1.Out, alignSamplesNormal.GetInPort("reads1"))
-	sp.Connect(fqNormal2.Out, alignSamplesNormal.GetInPort("reads2"))
-	readsIdxQueueNormal.Out.Connect(alignSamplesNormal.ParamPorts["index"])
+	// Align Reads
+	sp.Connect(appsDirMultiplicator.Out, alignSamples.GetInPort("appsdir"))
+	sp.Connect(readsFQ1.Out, alignSamples.GetInPort("reads1"))
+	sp.Connect(readsFQ2.Out, alignSamples.GetInPort("reads2"))
+	readsIdxQueue.Out.Connect(alignSamples.ParamPorts["index"])
+	readsKindsQueueAlign.Out.Connect(alignSamples.ParamPorts["readskind"])
 
-	sp.Connect(alignSamplesNormal.GetOutPort("bam"), streamToSubstreamNormal.In)
-	mergeBamsNormal.GetInPort("bams").Connect(streamToSubstreamNormal.OutSubStream)
+	alignSamples.GetOutPort("bam").Connect(streamToSubstream.In)
+	streamToSubstream.OutSubStream.Connect(mergeBams.GetInPort("bams"))
+	readsKindsQueueMerge.Out.Connect(mergeBams.ParamPorts["readskind"])
 
-	mainWfSink.Connect(mergeBamsNormal.GetOutPort("mergedbam"))
-
-	// Align Reads Tumor
-	sp.Connect(appsDirFanOut.GetOutPort("tumor"), appsDirMultiTumor.In)
-	sp.Connect(appsDirMultiTumor.Out, alignSamplesTumor.GetInPort("appsdir"))
-	sp.Connect(fqTumor1.Out, alignSamplesTumor.GetInPort("reads1"))
-	sp.Connect(fqTumor2.Out, alignSamplesTumor.GetInPort("reads2"))
-	readsIdxQueueTumor.Out.Connect(alignSamplesTumor.ParamPorts["index"])
-
-	sp.Connect(alignSamplesTumor.GetOutPort("bam"), streamToSubstreamTumor.In)
-	mergeBamsTumor.GetInPort("bams").Connect(streamToSubstreamTumor.OutSubStream)
-
-	mainWfSink.Connect(mergeBamsTumor.GetOutPort("mergedbam"))
+	mainWfSink.Connect(mergeBams.GetOutPort("mergedbam"))
 
 	// ================================================================================
 	// Run workflow
@@ -246,7 +205,7 @@ func main() {
 // samtools merge -f tumor.bam tumor_1.bam tumor_2.bam tumor_3.bam tumor_5.bam tumor_6.bam tumor_7.bam
 // samtools merge -f normal.bam normal_1.bam normal_2.bam normal_4.bam normal_7.bam normal_8.bam
 //
-// echo -e "marking duplicates"
+// WE ARE HERE --> echo -e "marking duplicates"
 // java -Xmx15g   -jar $APPSDIR/picard-tools-1.118/MarkDuplicates.jar   INPUT=normal.bam   METRICS_FILE=normal.bam.metrics   TMP_DIR="$SCRATCHDIR/tmp"  ASSUME_SORTED=true   VALIDATION_STRINGENCY=LENIENT   CREATE_INDEX=TRUE   OUTPUT=normal_0.md.bam
 // java -Xmx15g   -jar $APPSDIR/picard-tools-1.118/MarkDuplicates.jar   INPUT=tumor.bam   METRICS_FILE=tumor.bam.metrics   TMP_DIR="$SCRATCHDIR/tmp"   ASSUME_SORTED=true   VALIDATION_STRINGENCY=LENIENT   CREATE_INDEX=TRUE   OUTPUT=tumor_1.md.bam
 //
