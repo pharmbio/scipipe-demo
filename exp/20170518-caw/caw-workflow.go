@@ -50,7 +50,7 @@ func main() {
 	// ================================================================================
 
 	refFasta := refDir + "/human_g1k_v37_decoy.fasta"
-	refIndex := refDir + "/human_g1k_v37_decoy.fasta"
+	refIndex := refDir + "/human_g1k_v37_decoy.fasta.fai"
 
 	// --------------------------------------------------------------------------------
 	// Align Samples Normal
