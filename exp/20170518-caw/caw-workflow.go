@@ -15,7 +15,7 @@ func main() {
 	tmpDir := "tmp"
 	appsDir := "data/apps"
 	refDir := appsDir + "/pipeline_test/ref"
-	origDataDir := appsDir + "/pipeline_test/ref"
+	origDataDir := appsDir + "/pipeline_test/data"
 	dataDir := "data"
 
 	// ================================================================================
