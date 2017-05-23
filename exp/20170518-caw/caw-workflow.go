@@ -30,13 +30,16 @@ func main() {
 
 	unzipApps := sp.NewFromShell("unzipApps", "zcat {i:targz} > {o:tar}")
 	unzipApps.SetPathReplace("targz", "tar", ".gz", "")
+	unzipApps.GetInPort("targz").Connect(dlApps.GetOutPort("apps"))
 	wf.AddProcess(unzipApps)
 
 	untarApps := sp.NewFromShell("untarApps", "tar -xvf {i:tar} -C "+dataDir+" # {o:outdir}")
 	untarApps.SetPathStatic("outdir", dataDir+"/apps")
+	untarApps.GetInPort("tar").Connect(unzipApps.GetOutPort("tar"))
 	wf.AddProcess(untarApps)
 
 	appsDirMultiplicator := NewFileMultiplicator(11)
+	appsDirMultiplicator.In.Connect(untarApps.GetOutPort("outdir"))
 	wf.AddProcess(appsDirMultiplicator)
 
 	// ================================================================================
@@ -58,81 +61,76 @@ func main() {
 		fqPaths1 = append(fqPaths1, origDataDir+"/tiny_normal_L00"+idx+"_R1.fastq.gz")
 		fqPaths2 = append(fqPaths2, origDataDir+"/tiny_normal_L00"+idx+"_R2.fastq.gz")
 	}
+
 	indexesTumor := []string{"1", "2", "3", "5", "6", "7"}
 	for _, idx := range indexesTumor {
 		fqPaths1 = append(fqPaths1, origDataDir+"/tiny_tumor_L00"+idx+"_R1.fastq.gz")
 		fqPaths2 = append(fqPaths2, origDataDir+"/tiny_tumor_L00"+idx+"_R2.fastq.gz")
 	}
 
-	readsFQ1 := sp.NewIPQueue(fqPaths1...)
-	wf.AddProcess(readsFQ1)
+	readsIndexQueue := map[string]*ParamQueue{}
 
-	readsFQ2 := sp.NewIPQueue(fqPaths2...)
-	wf.AddProcess(readsFQ2)
+	readsIndexQueue["normal"] = NewParamQueue(indexesNormal...)
+	wf.AddProcess(readsIndexQueue["normal"])
 
-	readsIdxQueue := NewParamQueue(append(indexesNormal, indexesTumor...)...)
-	wf.AddProcess(readsIdxQueue)
+	readsIndexQueue["tumor"] = NewParamQueue(indexesTumor...)
+	wf.AddProcess(readsIndexQueue["tumor"])
 
-	readsKinds := []string{"normal", "normal", "normal", "normal", "normal",
-		"tumor", "tumor", "tumor", "tumor", "tumor", "tumor"}
-	readsKindsQueueAlign := NewParamQueue(readsKinds...)
-	wf.AddProcess(readsKindsQueueAlign)
-	readsKindsQueueMerge := NewParamQueue(readsKinds...)
-	wf.AddProcess(readsKindsQueueMerge)
+	alignSamples := map[string]*sp.SciProcess{}
+	readsFQ1 := map[string]*sp.IPQueue{}
+	readsFQ2 := map[string]*sp.IPQueue{}
 
-	// Define process
-	alignSamples := sp.NewFromShell("alignSamplesTumor", "bwa mem -R \"@RG\tID:{p:readskind}_{p:index}\tSM:tumor\tLB:tumor\tPL:illumina\" -B 3 -t 4 -M "+refFasta+" {i:reads1} {i:reads2}"+
-		"| samtools view -bS -t "+refIndex+" - "+
-		"| samtools sort - > {o:bam} # {i:appsdir}")
-	alignSamples.PathFormatters["bam"] = func(t *sp.SciTask) string {
-		outPath := tmpDir + "/" + t.Params["readskind"] + "_" + t.Params["index"] + ".bam"
-		return outPath
-	}
-	wf.AddProcess(alignSamples)
+	streamToSubstream := map[string]*spcomp.StreamToSubStream{}
+	mergeBams := map[string]*sp.SciProcess{}
 
-	// --------------------------------------------------------------------------------
-	// Merge BAMs
-	// --------------------------------------------------------------------------------
-	// echo -e "\nmerging bams\n"
-	// samtools merge -f tumor.bam tumor_1.bam tumor_2.bam tumor_3.bam tumor_5.bam tumor_6.bam tumor_7.bam
-	// samtools merge -f normal.bam normal_1.bam normal_2.bam normal_4.bam normal_7.bam normal_8.bam
-
-	streamToSubstream := spcomp.NewStreamToSubStream()
-	wf.AddProcess(streamToSubstream)
-
-	mergeBams := sp.NewFromShell("mergeBams", "samtools merge -f {o:mergedbam} {i:bams:r: } # {p:readskind}")
-	mergeBams.SetPathStatic("mergedbam", tmpDir+"/normal.bam")
-	mergeBams.PathFormatters["mergedbam"] = func(t *sp.SciTask) string {
-		return tmpDir + "/" + t.Params["readskind"] + ".bam"
-	}
-	wf.AddProcess(mergeBams)
-
-	// --------------------------------------------------------------------------------
-	// Sink
-	// --------------------------------------------------------------------------------
 	mainWfSink := sp.NewSink()
+
+	for _, sampleType := range []string{"normal", "tumor"} {
+
+		// --------------------------------------------------------------------------------
+		// Align samples
+		// --------------------------------------------------------------------------------
+		readsFQ1[sampleType] = sp.NewIPQueue(fqPaths1...)
+		wf.AddProcess(readsFQ1[sampleType])
+
+		readsFQ2[sampleType] = sp.NewIPQueue(fqPaths2...)
+		wf.AddProcess(readsFQ2[sampleType])
+
+		alignSamples[sampleType] = sp.NewFromShell("align_samples_"+sampleType, "bwa mem -R \"@RG\tID:"+sampleType+"_{p:index}\tSM:tumor\tLB:tumor\tPL:illumina\" -B 3 -t 4 -M "+refFasta+" {i:reads1} {i:reads2}"+
+			"| samtools view -bS -t "+refIndex+" - "+
+			"| samtools sort - > {o:bam} # {i:appsdir}")
+		alignSamples[sampleType].GetInPort("reads1").Connect(readsFQ1[sampleType].Out)
+		alignSamples[sampleType].GetInPort("reads2").Connect(readsFQ2[sampleType].Out)
+		alignSamples[sampleType].GetInPort("appsdir").Connect(appsDirMultiplicator.Out)
+		alignSamples[sampleType].PathFormatters["bam"] = func(t *sp.SciTask) string {
+			outPath := tmpDir + "/" + sampleType + "_" + t.Params["index"] + ".bam"
+			return outPath
+		}
+		wf.AddProcess(alignSamples[sampleType])
+
+		// --------------------------------------------------------------------------------
+		// Merge BAMs
+		// --------------------------------------------------------------------------------
+
+		streamToSubstream[sampleType] = spcomp.NewStreamToSubStream()
+		wf.AddProcess(streamToSubstream[sampleType])
+
+		mergeBams[sampleType] = sp.NewFromShell("mergeBams", "samtools merge -f {o:mergedbam} {i:bams:r: } # {p:sampleType}")
+		mergeBams[sampleType].SetPathStatic("mergedbam", tmpDir+"/normal.bam")
+		mergeBams[sampleType].GetInPort("bams").Connect(streamToSubstream[sampleType].OutSubStream)
+		mergeBams[sampleType].PathFormatters["mergedbam"] = func(t *sp.SciTask) string {
+			return tmpDir + "/" + t.Params["sampleType"] + ".bam"
+		}
+		wf.AddProcess(mergeBams[sampleType])
+
+		mainWfSink.Connect(mergeBams[sampleType].GetOutPort("mergedbam"))
+	}
+
 	wf.AddProcess(mainWfSink)
 
 	// ================================================================================
 	// Connect network
 	// ================================================================================
-
-	sp.Connect(dlApps.GetOutPort("apps"), unzipApps.GetInPort("targz"))
-	sp.Connect(unzipApps.GetOutPort("tar"), untarApps.GetInPort("tar"))
-	sp.Connect(untarApps.GetOutPort("outdir"), appsDirMultiplicator.In)
-
-	// Align Reads
-	sp.Connect(appsDirMultiplicator.Out, alignSamples.GetInPort("appsdir"))
-	sp.Connect(readsFQ1.Out, alignSamples.GetInPort("reads1"))
-	sp.Connect(readsFQ2.Out, alignSamples.GetInPort("reads2"))
-	readsIdxQueue.Out.Connect(alignSamples.ParamPorts["index"])
-	readsKindsQueueAlign.Out.Connect(alignSamples.ParamPorts["readskind"])
-
-	alignSamples.GetOutPort("bam").Connect(streamToSubstream.In)
-	streamToSubstream.OutSubStream.Connect(mergeBams.GetInPort("bams"))
-	readsKindsQueueMerge.Out.Connect(mergeBams.ParamPorts["readskind"])
-
-	mainWfSink.Connect(mergeBams.GetOutPort("mergedbam"))
 
 	// ================================================================================
 	// Run workflow
