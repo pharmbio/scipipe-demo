@@ -96,12 +96,13 @@ func main() {
 		readsFQ2[sampleType] = sp.NewIPQueue(fqPaths2...)
 		wf.AddProcess(readsFQ2[sampleType])
 
-		alignSamples[sampleType] = sp.NewFromShell("align_samples_"+sampleType, "bwa mem -R \"@RG\tID:"+sampleType+"_{p:index}\tSM:tumor\tLB:tumor\tPL:illumina\" -B 3 -t 4 -M "+refFasta+" {i:reads1} {i:reads2}"+
+		alignSamples[sampleType] = sp.NewFromShell("align_samples_"+sampleType, "bwa mem -R \"@RG\tID:"+sampleType+"_{p:index}\tSM:"+sampleType+"\tLB:"+sampleType+"\tPL:illumina\" -B 3 -t 4 -M "+refFasta+" {i:reads1} {i:reads2}"+
 			"| samtools view -bS -t "+refIndex+" - "+
 			"| samtools sort - > {o:bam} # {i:appsdir}")
 		alignSamples[sampleType].GetInPort("reads1").Connect(readsFQ1[sampleType].Out)
 		alignSamples[sampleType].GetInPort("reads2").Connect(readsFQ2[sampleType].Out)
 		alignSamples[sampleType].GetInPort("appsdir").Connect(appsDirMultiplicator.Out)
+		alignSamples[sampleType].ParamPorts["index"].Connect(readsIndexQueue[sampleType].Out)
 		alignSamples[sampleType].PathFormatters["bam"] = func(t *sp.SciTask) string {
 			outPath := tmpDir + "/" + sampleType + "_" + t.Params["index"] + ".bam"
 			return outPath
@@ -113,14 +114,12 @@ func main() {
 		// --------------------------------------------------------------------------------
 
 		streamToSubstream[sampleType] = spcomp.NewStreamToSubStream()
+		streamToSubstream[sampleType].In.Connect(alignSamples[sampleType].GetOutPort("bam"))
 		wf.AddProcess(streamToSubstream[sampleType])
 
-		mergeBams[sampleType] = sp.NewFromShell("mergeBams", "samtools merge -f {o:mergedbam} {i:bams:r: } # {p:sampleType}")
-		mergeBams[sampleType].SetPathStatic("mergedbam", tmpDir+"/normal.bam")
+		mergeBams[sampleType] = sp.NewFromShell("mergeBams", "samtools merge -f {o:mergedbam} {i:bams:r: }")
 		mergeBams[sampleType].GetInPort("bams").Connect(streamToSubstream[sampleType].OutSubStream)
-		mergeBams[sampleType].PathFormatters["mergedbam"] = func(t *sp.SciTask) string {
-			return tmpDir + "/" + t.Params["sampleType"] + ".bam"
-		}
+		mergeBams[sampleType].SetPathStatic("mergedbam", tmpDir+"/"+sampleType+".bam")
 		wf.AddProcess(mergeBams[sampleType])
 
 		mainWfSink.Connect(mergeBams[sampleType].GetOutPort("mergedbam"))
