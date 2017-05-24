@@ -185,7 +185,7 @@ func main() {
 	realignIndels.GetInPort("intervals").Connect(realignCreateTargets.GetOutPort("intervals"))
 	realignIndels.GetInPort("bamnormal").Connect(markDupesNormalFanOut.GetOutPort("realign_indels"))
 	realignIndels.GetInPort("bamtumor").Connect(markDupesTumorFanOut.GetOutPort("realign_indels"))
-	realignIndels.SetPathStatic("realbam", "realbam.done.txt")
+	realignIndels.SetPathStatic("realbam", tmpDir+"/realbam.done.txt")
 	wf.AddProcess(realignIndels)
 
 	mainWfSink.Connect(realignIndels.GetOutPort("realbam"))
