@@ -136,9 +136,6 @@ func main() {
 	// --------------------------------------------------------------------------------
 	// Re-align Reads - Create Targets
 	// --------------------------------------------------------------------------------
-	// java -Xmx3g   -jar $APPSDIR/gatk/GenomeAnalysisTK.jar   -T RealignerTargetCreator   -I normal_0.md.bam -I tumor_1.md.bam   -R $REFDIR/human_g1k_v37_decoy.fasta   -known $REFDIR/1000G_phase1.indels.b37.vcf   -known $REFDIR/Mills_and_1000G_gold_standard.indels.b37.vcf   -nt 4   -XL hs37d5   -XL NC_007605   -o tiny.intervals
-
-	// java -Xmx3g   -jar $APPSDIR/gatk/GenomeAnalysisTK.jar   -T IndelRealigner   -I normal_0.md.bam -I tumor_1.md.bam   -R $REFDIR/human_g1k_v37_decoy.fasta   -targetIntervals tiny.intervals   -known $REFDIR/1000G_phase1.indels.b37.vcf   -known $REFDIR/Mills_and_1000G_gold_standard.indels.b37.vcf   -XL hs37d5   -XL NC_007605   -nWayOut '.real.bam'
 
 	markDupesNormalFanOut := spcomp.NewFanOut()
 	markDupesNormalFanOut.InFile.Connect(markDupes["normal"].GetOutPort("bam"))
@@ -178,14 +175,13 @@ func main() {
 			-known `+refDir+`/Mills_and_1000G_gold_standard.indels.b37.vcf \
 			-XL hs37d5 \
 			-XL NC_007605 \
-			-nWayOut '.real.bam'; echo done > {o:realbam}`)
+			-nWayOut '.real.bam' # {o:realbamnormal} {o:realbamtumor}`)
 	realignIndels.GetInPort("intervals").Connect(realignCreateTargets.GetOutPort("intervals"))
 	realignIndels.GetInPort("bamnormal").Connect(markDupesNormalFanOut.GetOutPort("realign_indels"))
 	realignIndels.GetInPort("bamtumor").Connect(markDupesTumorFanOut.GetOutPort("realign_indels"))
-	realignIndels.SetPathStatic("realbam", tmpDir+"/realbam.done.txt")
+	realignIndels.SetPathReplace("bamnormal", "realbamnormal", ".bam", ".real.bam")
+	realignIndels.SetPathReplace("bamtumor", "realbamtumor", ".bam", ".real.bam")
 	wf.AddProcess(realignIndels)
-
-	mainWfSink.Connect(realignIndels.GetOutPort("realbam"))
 
 	// --------------------------------------------------------------------------------
 	// Re-calibrate reads
@@ -196,6 +192,53 @@ func main() {
 	//
 	// java -Xmx3g   -Djava.io.tmpdir="$SCRATCHDIR/tmp"   -jar $APPSDIR/gatk/GenomeAnalysisTK.jar   -T BaseRecalibrator   -R $REFDIR/human_g1k_v37_decoy.fasta   -I tumor_1.md.real.bam   -knownSites $REFDIR/dbsnp_138.b37.vcf   -knownSites $REFDIR/1000G_phase1.indels.b37.vcf   -knownSites $REFDIR/Mills_and_1000G_gold_standard.indels.b37.vcf   -nct 4   -XL hs37d5   -XL NC_007605   -l INFO   -o tumor.recal.table
 	// java -Xmx3g   -jar $APPSDIR/gatk/GenomeAnalysisTK.jar   -T PrintReads   -R $REFDIR/human_g1k_v37_decoy.fasta   -nct 4   -I tumor_1.md.real.bam   -XL hs37d5   -XL NC_007605   --BQSR tumor.recal.table   -o tumor.recal.bam
+
+	//recalibrateBases := map[string]*sp.SciProcess{}
+	//printReads := map[string]*sp.SciProcess{}
+
+	realBamFanOut := map[string]*spcomp.FanOut{}
+
+	reCalibrate := map[string]*sp.SciProcess{}
+	printReads := map[string]*sp.SciProcess{}
+
+	for _, sampleType := range []string{"normal", "tumor"} {
+
+		realBamFanOut[sampleType] = spcomp.NewFanOut()
+		realBamFanOut[sampleType].InFile.Connect(realignIndels.GetOutPort("realbam" + sampleType))
+		wf.AddProcess(realBamFanOut[sampleType])
+
+		reCalibrate[sampleType] = sp.NewFromShell("recalibrate_"+sampleType,
+			`java -Xmx3g -Djava.io.tmpdir=`+tmpDir+` -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T BaseRecalibrator \
+				-R `+refDir+`/human_g1k_v37_decoy.fasta \
+				-I {i:realbam} \
+				-knownSites `+refDir+`/dbsnp_138.b37.vcf \
+				-knownSites `+refDir+`/1000G_phase1.indels.b37.vcf \
+				-knownSites `+refDir+`/Mills_and_1000G_gold_standard.indels.b37.vcf \
+				-nct 4 \
+				-XL hs37d5 \
+				-XL NC_007605 \
+				-l INFO \
+				-o {o:recaltable}`)
+		reCalibrate[sampleType].GetInPort("realbam").Connect(realBamFanOut[sampleType].GetOutPort("recal"))
+		reCalibrate[sampleType].SetPathStatic("recaltable", tmpDir+"/"+sampleType+".recal.table")
+		wf.AddProcess(reCalibrate[sampleType])
+
+		printReads[sampleType] = sp.NewFromShell("print_reads_"+sampleType,
+			`java -Xmx3g -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T PrintReads \
+				-R `+refDir+`/human_g1k_v37_decoy.fasta \
+				-nct 4 \
+				-I {i:realbam} \
+				-XL hs37d5 \
+				-XL NC_007605 \
+				--BQSR {i:recaltable} \
+				-o {o:recalbam}`)
+		printReads[sampleType].GetInPort("realbam").Connect(realBamFanOut[sampleType].GetOutPort("printreads"))
+		printReads[sampleType].GetInPort("recaltable").Connect(reCalibrate[sampleType].GetOutPort("recaltable"))
+		printReads[sampleType].SetPathStatic("recalbam", sampleType+".recal.bam")
+		wf.AddProcess(printReads[sampleType])
+
+		mainWfSink.Connect(printReads[sampleType].GetOutPort("recalbam"))
+	}
 
 	wf.AddProcess(mainWfSink)
 	wf.Run()
