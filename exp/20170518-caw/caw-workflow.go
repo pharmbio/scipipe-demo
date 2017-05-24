@@ -77,14 +77,20 @@ func main() {
 	wf.AddProcess(readsIndexQueue["tumor"])
 
 	alignSamples := map[string]*sp.SciProcess{}
+	mergeBams := map[string]*sp.SciProcess{}
+	markDupes := map[string]*sp.SciProcess{}
+
 	readsFQ1 := map[string]*sp.IPQueue{}
 	readsFQ2 := map[string]*sp.IPQueue{}
 
 	streamToSubstream := map[string]*spcomp.StreamToSubStream{}
-	mergeBams := map[string]*sp.SciProcess{}
 
 	mainWfSink := sp.NewSink()
 
+	markDupesOutputIndex := map[string]string{
+		"normal": "0",
+		"tumor":  "1",
+	}
 	for _, sampleType := range []string{"normal", "tumor"} {
 
 		// --------------------------------------------------------------------------------
@@ -122,12 +128,26 @@ func main() {
 		mergeBams[sampleType].SetPathStatic("mergedbam", tmpDir+"/"+sampleType+".bam")
 		wf.AddProcess(mergeBams[sampleType])
 
-		mainWfSink.Connect(mergeBams[sampleType].GetOutPort("mergedbam"))
+		// echo -e "marking duplicates"
+		// java -Xmx15g   -jar $APPSDIR/picard-tools-1.118/MarkDuplicates.jar   INPUT=normal.bam   METRICS_FILE=normal.bam.metrics   TMP_DIR="$SCRATCHDIR/tmp"  ASSUME_SORTED=true   VALIDATION_STRINGENCY=LENIENT   CREATE_INDEX=TRUE   OUTPUT=normal_0.md.bam
+		// java -Xmx15g   -jar $APPSDIR/picard-tools-1.118/MarkDuplicates.jar   INPUT=tumor.bam   METRICS_FILE=tumor.bam.metrics   TMP_DIR="$SCRATCHDIR/tmp"   ASSUME_SORTED=true   VALIDATION_STRINGENCY=LENIENT   CREATE_INDEX=TRUE   OUTPUT=tumor_1.md.bam
+
+		markDupes[sampleType] = sp.NewFromShell("mark_dupes_"+sampleType,
+			`java -Xmx15g -jar `+appsDir+`/picard-tools-1.118/MarkDuplicates.jar \
+				INPUT={i:bam} \
+				METRICS_FILE=`+tmpDir+`/`+sampleType+`_`+markDupesOutputIndex[sampleType]+`.md.bam \
+				TMP_DIR=`+tmpDir+` \
+				ASSUME_SORTED=true \
+				VALIDATION_STRINGENCY=LENIENT \
+				CREATE_INDEX=TRUE \
+				OUTPUT={o:bam}`)
+		markDupes[sampleType].SetPathStatic("bam", tmpDir+"/"+sampleType+"_"+markDupesOutputIndex[sampleType]+".md.bam")
+		markDupes[sampleType].GetInPort("bam").Connect(mergeBams[sampleType].GetOutPort("mergedbam"))
+		wf.AddProcess(markDupes[sampleType])
+
+		mainWfSink.Connect(markDupes[sampleType].GetOutPort("bam"))
 	}
 
-	// WE ARE HERE --> echo -e "marking duplicates"
-	// java -Xmx15g   -jar $APPSDIR/picard-tools-1.118/MarkDuplicates.jar   INPUT=normal.bam   METRICS_FILE=normal.bam.metrics   TMP_DIR="$SCRATCHDIR/tmp"  ASSUME_SORTED=true   VALIDATION_STRINGENCY=LENIENT   CREATE_INDEX=TRUE   OUTPUT=normal_0.md.bam
-	// java -Xmx15g   -jar $APPSDIR/picard-tools-1.118/MarkDuplicates.jar   INPUT=tumor.bam   METRICS_FILE=tumor.bam.metrics   TMP_DIR="$SCRATCHDIR/tmp"   ASSUME_SORTED=true   VALIDATION_STRINGENCY=LENIENT   CREATE_INDEX=TRUE   OUTPUT=tumor_1.md.bam
 	//
 	// echo -e "realign reads"
 	// java -Xmx3g   -jar $APPSDIR/gatk/GenomeAnalysisTK.jar   -T RealignerTargetCreator   -I normal_0.md.bam -I tumor_1.md.bam   -R $REFDIR/human_g1k_v37_decoy.fasta   -known $REFDIR/1000G_phase1.indels.b37.vcf   -known $REFDIR/Mills_and_1000G_gold_standard.indels.b37.vcf   -nt 4   -XL hs37d5   -XL NC_007605   -o tiny.intervals
