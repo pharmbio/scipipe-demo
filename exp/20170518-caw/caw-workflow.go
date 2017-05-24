@@ -3,6 +3,7 @@ package main
 import (
 	sp "github.com/scipipe/scipipe"
 	spcomp "github.com/scipipe/scipipe/components"
+	"strconv"
 )
 
 func main() {
@@ -69,12 +70,8 @@ func main() {
 	// Init the main sink
 	mainWfSink := sp.NewSink()
 
-	// Create a map so that we can get an index number from the sample type, used in one of the processes
-	markDupesOutputIndex := map[string]string{
-		"normal": "0",
-		"tumor":  "1",
-	}
-	for _, sampleType := range []string{"normal", "tumor"} {
+	for i, sampleType := range []string{"normal", "tumor"} {
+		si := strconv.Itoa(i)
 		indexQueue[sampleType] = NewParamQueue(indexes[sampleType]...)
 		wf.AddProcess(indexQueue[sampleType])
 
@@ -124,14 +121,14 @@ func main() {
 		markDupes[sampleType] = sp.NewFromShell("mark_dupes_"+sampleType,
 			`java -Xmx15g -jar `+appsDir+`/picard-tools-1.118/MarkDuplicates.jar \
 				INPUT={i:bam} \
-				METRICS_FILE=`+tmpDir+`/`+sampleType+`_`+markDupesOutputIndex[sampleType]+`.md.bam \
+				METRICS_FILE=`+tmpDir+`/`+sampleType+`_`+si+`.md.bam \
 				TMP_DIR=`+tmpDir+` \
 				ASSUME_SORTED=true \
 				VALIDATION_STRINGENCY=LENIENT \
 				CREATE_INDEX=TRUE \
 				OUTPUT={o:bam}; \
-				mv `+tmpDir+`/`+sampleType+`_`+markDupesOutputIndex[sampleType]+`.md{.bam.tmp,}.bai;`)
-		markDupes[sampleType].SetPathStatic("bam", tmpDir+"/"+sampleType+"_"+markDupesOutputIndex[sampleType]+".md.bam")
+				mv `+tmpDir+`/`+sampleType+`_`+si+`.md{.bam.tmp,}.bai;`)
+		markDupes[sampleType].SetPathStatic("bam", tmpDir+"/"+sampleType+"_"+si+".md.bam")
 		markDupes[sampleType].GetInPort("bam").Connect(mergeBams[sampleType].GetOutPort("mergedbam"))
 		wf.AddProcess(markDupes[sampleType])
 	}
