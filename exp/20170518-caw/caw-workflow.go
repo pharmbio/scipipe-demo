@@ -129,7 +129,8 @@ func main() {
 				ASSUME_SORTED=true \
 				VALIDATION_STRINGENCY=LENIENT \
 				CREATE_INDEX=TRUE \
-				OUTPUT={o:bam}`)
+				OUTPUT={o:bam}; \
+				mv `+tmpDir+`/`+sampleType+`_`+markDupesOutputIndex[sampleType]+`.md{.bam.tmp,}.bai;`)
 		markDupes[sampleType].SetPathStatic("bam", tmpDir+"/"+sampleType+"_"+markDupesOutputIndex[sampleType]+".md.bam")
 		markDupes[sampleType].GetInPort("bam").Connect(mergeBams[sampleType].GetOutPort("mergedbam"))
 		wf.AddProcess(markDupes[sampleType])
