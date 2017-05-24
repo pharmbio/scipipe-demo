@@ -49,57 +49,46 @@ func main() {
 	refFasta := refDir + "/human_g1k_v37_decoy.fasta"
 	refIndex := refDir + "/human_g1k_v37_decoy.fasta.fai"
 
-	// --------------------------------------------------------------------------------
-	// Align Samples
-	// --------------------------------------------------------------------------------
+	fqPaths1 := map[string][]string{}
+	fqPaths2 := map[string][]string{}
 
-	// Create File queues for all the samples
-	indexesNormal := []string{"1", "2", "4", "7", "8"}
-	fqPaths1 := []string{}
-	fqPaths2 := []string{}
-	for _, idx := range indexesNormal {
-		fqPaths1 = append(fqPaths1, origDataDir+"/tiny_normal_L00"+idx+"_R1.fastq.gz")
-		fqPaths2 = append(fqPaths2, origDataDir+"/tiny_normal_L00"+idx+"_R2.fastq.gz")
-	}
+	indexes := map[string][]string{}
+	indexes["normal"] = []string{"1", "2", "4", "7", "8"}
+	indexes["tumor"] = []string{"1", "2", "3", "5", "6", "7"}
+	indexQueue := map[string]*ParamQueue{}
 
-	indexesTumor := []string{"1", "2", "3", "5", "6", "7"}
-	for _, idx := range indexesTumor {
-		fqPaths1 = append(fqPaths1, origDataDir+"/tiny_tumor_L00"+idx+"_R1.fastq.gz")
-		fqPaths2 = append(fqPaths2, origDataDir+"/tiny_tumor_L00"+idx+"_R2.fastq.gz")
-	}
-
-	readsIndexQueue := map[string]*ParamQueue{}
-
-	readsIndexQueue["normal"] = NewParamQueue(indexesNormal...)
-	wf.AddProcess(readsIndexQueue["normal"])
-
-	readsIndexQueue["tumor"] = NewParamQueue(indexesTumor...)
-	wf.AddProcess(readsIndexQueue["tumor"])
-
+	// Init some process "holders"
 	alignSamples := map[string]*sp.SciProcess{}
 	mergeBams := map[string]*sp.SciProcess{}
 	markDupes := map[string]*sp.SciProcess{}
 
 	readsFQ1 := map[string]*sp.IPQueue{}
 	readsFQ2 := map[string]*sp.IPQueue{}
-
 	streamToSubstream := map[string]*spcomp.StreamToSubStream{}
 
+	// Init the main sink
 	mainWfSink := sp.NewSink()
 
+	// Create a map so that we can get an index number from the sample type, used in one of the processes
 	markDupesOutputIndex := map[string]string{
 		"normal": "0",
 		"tumor":  "1",
 	}
 	for _, sampleType := range []string{"normal", "tumor"} {
+		indexQueue[sampleType] = NewParamQueue(indexes[sampleType]...)
+		wf.AddProcess(indexQueue[sampleType])
+
+		for _, idx := range indexes[sampleType] {
+			fqPaths1[sampleType] = append(fqPaths1[sampleType], origDataDir+"/tiny_"+sampleType+"_L00"+idx+"_R1.fastq.gz")
+			fqPaths2[sampleType] = append(fqPaths2[sampleType], origDataDir+"/tiny_"+sampleType+"_L00"+idx+"_R2.fastq.gz")
+		}
 
 		// --------------------------------------------------------------------------------
 		// Align samples
 		// --------------------------------------------------------------------------------
-		readsFQ1[sampleType] = sp.NewIPQueue(fqPaths1...)
+		readsFQ1[sampleType] = sp.NewIPQueue(fqPaths1[sampleType]...)
 		wf.AddProcess(readsFQ1[sampleType])
-
-		readsFQ2[sampleType] = sp.NewIPQueue(fqPaths2...)
+		readsFQ2[sampleType] = sp.NewIPQueue(fqPaths2[sampleType]...)
 		wf.AddProcess(readsFQ2[sampleType])
 
 		alignSamples[sampleType] = sp.NewFromShell("align_samples_"+sampleType, "bwa mem -R \"@RG\tID:"+sampleType+"_{p:index}\tSM:"+sampleType+"\tLB:"+sampleType+"\tPL:illumina\" -B 3 -t 4 -M "+refFasta+" {i:reads1} {i:reads2}"+
@@ -108,7 +97,7 @@ func main() {
 		alignSamples[sampleType].GetInPort("reads1").Connect(readsFQ1[sampleType].Out)
 		alignSamples[sampleType].GetInPort("reads2").Connect(readsFQ2[sampleType].Out)
 		alignSamples[sampleType].GetInPort("appsdir").Connect(appsDirMultiplicator.Out)
-		alignSamples[sampleType].ParamPorts["index"].Connect(readsIndexQueue[sampleType].Out)
+		alignSamples[sampleType].ParamPorts["index"].Connect(indexQueue[sampleType].Out)
 		alignSamples[sampleType].PathFormatters["bam"] = func(t *sp.SciTask) string {
 			outPath := tmpDir + "/" + sampleType + "_" + t.Params["index"] + ".bam"
 			return outPath
@@ -144,26 +133,71 @@ func main() {
 		markDupes[sampleType].SetPathStatic("bam", tmpDir+"/"+sampleType+"_"+markDupesOutputIndex[sampleType]+".md.bam")
 		markDupes[sampleType].GetInPort("bam").Connect(mergeBams[sampleType].GetOutPort("mergedbam"))
 		wf.AddProcess(markDupes[sampleType])
-
-		// --------------------------------------------------------------------------------
-		// Re-align Reads
-		// --------------------------------------------------------------------------------
-
-		// java -Xmx3g   -jar $APPSDIR/gatk/GenomeAnalysisTK.jar   -T RealignerTargetCreator   -I normal_0.md.bam -I tumor_1.md.bam   -R $REFDIR/human_g1k_v37_decoy.fasta   -known $REFDIR/1000G_phase1.indels.b37.vcf   -known $REFDIR/Mills_and_1000G_gold_standard.indels.b37.vcf   -nt 4   -XL hs37d5   -XL NC_007605   -o tiny.intervals
-		// java -Xmx3g   -jar $APPSDIR/gatk/GenomeAnalysisTK.jar   -T IndelRealigner   -I normal_0.md.bam -I tumor_1.md.bam   -R $REFDIR/human_g1k_v37_decoy.fasta   -targetIntervals tiny.intervals   -known $REFDIR/1000G_phase1.indels.b37.vcf   -known $REFDIR/Mills_and_1000G_gold_standard.indels.b37.vcf   -XL hs37d5   -XL NC_007605   -nWayOut '.real.bam'
-
-		// --------------------------------------------------------------------------------
-		// Re-calibrate reads
-		// --------------------------------------------------------------------------------
-
-		// java -Xmx3g   -Djava.io.tmpdir="$SCRATCHDIR/tmp"   -jar $APPSDIR/gatk/GenomeAnalysisTK.jar   -T BaseRecalibrator   -R $REFDIR/human_g1k_v37_decoy.fasta   -I normal_0.md.real.bam   -knownSites $REFDIR/dbsnp_138.b37.vcf   -knownSites $REFDIR/1000G_phase1.indels.b37.vcf   -knownSites $REFDIR/Mills_and_1000G_gold_standard.indels.b37.vcf   -nct 4   -XL hs37d5   -XL NC_007605   -l INFO   -o normal.recal.table
-		// java -Xmx3g   -jar $APPSDIR/gatk/GenomeAnalysisTK.jar   -T PrintReads   -R $REFDIR/human_g1k_v37_decoy.fasta   -nct 4   -I normal_0.md.real.bam   -XL hs37d5   -XL NC_007605   --BQSR normal.recal.table   -o normal.recal.bam
-		//
-		// java -Xmx3g   -Djava.io.tmpdir="$SCRATCHDIR/tmp"   -jar $APPSDIR/gatk/GenomeAnalysisTK.jar   -T BaseRecalibrator   -R $REFDIR/human_g1k_v37_decoy.fasta   -I tumor_1.md.real.bam   -knownSites $REFDIR/dbsnp_138.b37.vcf   -knownSites $REFDIR/1000G_phase1.indels.b37.vcf   -knownSites $REFDIR/Mills_and_1000G_gold_standard.indels.b37.vcf   -nct 4   -XL hs37d5   -XL NC_007605   -l INFO   -o tumor.recal.table
-		// java -Xmx3g   -jar $APPSDIR/gatk/GenomeAnalysisTK.jar   -T PrintReads   -R $REFDIR/human_g1k_v37_decoy.fasta   -nct 4   -I tumor_1.md.real.bam   -XL hs37d5   -XL NC_007605   --BQSR tumor.recal.table   -o tumor.recal.bam
-
-		mainWfSink.Connect(markDupes[sampleType].GetOutPort("bam"))
 	}
+
+	// --------------------------------------------------------------------------------
+	// Re-align Reads - Create Targets
+	// --------------------------------------------------------------------------------
+	// java -Xmx3g   -jar $APPSDIR/gatk/GenomeAnalysisTK.jar   -T RealignerTargetCreator   -I normal_0.md.bam -I tumor_1.md.bam   -R $REFDIR/human_g1k_v37_decoy.fasta   -known $REFDIR/1000G_phase1.indels.b37.vcf   -known $REFDIR/Mills_and_1000G_gold_standard.indels.b37.vcf   -nt 4   -XL hs37d5   -XL NC_007605   -o tiny.intervals
+
+	// java -Xmx3g   -jar $APPSDIR/gatk/GenomeAnalysisTK.jar   -T IndelRealigner   -I normal_0.md.bam -I tumor_1.md.bam   -R $REFDIR/human_g1k_v37_decoy.fasta   -targetIntervals tiny.intervals   -known $REFDIR/1000G_phase1.indels.b37.vcf   -known $REFDIR/Mills_and_1000G_gold_standard.indels.b37.vcf   -XL hs37d5   -XL NC_007605   -nWayOut '.real.bam'
+
+	markDupesNormalFanOut := spcomp.NewFanOut()
+	markDupesNormalFanOut.InFile.Connect(markDupes["normal"].GetOutPort("bam"))
+	wf.AddProcess(markDupesNormalFanOut)
+
+	markDupesTumorFanOut := spcomp.NewFanOut()
+	markDupesTumorFanOut.InFile.Connect(markDupes["tumor"].GetOutPort("bam"))
+	wf.AddProcess(markDupesTumorFanOut)
+
+	realignCreateTargets := sp.NewFromShell("realign_create_targets",
+		`java -Xmx3g -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T RealignerTargetCreator  \
+				-I {i:bamnormal} \
+				-I {i:bamtumor} \
+				-R `+refDir+`/human_g1k_v37_decoy.fasta \
+				-known `+refDir+`/1000G_phase1.indels.b37.vcf \
+				-known `+refDir+`/Mills_and_1000G_gold_standard.indels.b37.vcf \
+				-nt 4 \
+				-XL hs37d5 \
+				-XL NC_007605 \
+				-o {o:intervals}`)
+	realignCreateTargets.GetInPort("bamnormal").Connect(markDupesNormalFanOut.GetOutPort("create_targets"))
+	realignCreateTargets.GetInPort("bamtumor").Connect(markDupesTumorFanOut.GetOutPort("create_targets"))
+	realignCreateTargets.SetPathStatic("intervals", tmpDir+"/tiny.intervals")
+	wf.AddProcess(realignCreateTargets)
+
+	// --------------------------------------------------------------------------------
+	// Re-align Reads - Re-align Indels
+	// --------------------------------------------------------------------------------
+
+	realignIndels := sp.NewFromShell("realign_indels",
+		`java -Xmx3g -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T IndelRealigner \
+			-I {i:bamnormal} \
+			-I {i:bamtumor} \
+			-R `+refDir+`/human_g1k_v37_decoy.fasta \
+			-targetIntervals {i:intervals} \
+			-known `+refDir+`/1000G_phase1.indels.b37.vcf \
+			-known `+refDir+`/Mills_and_1000G_gold_standard.indels.b37.vcf \
+			-XL hs37d5 \
+			-XL NC_007605 \
+			-nWayOut '.real.bam'; echo done > {o:realbam}`)
+	realignIndels.GetInPort("intervals").Connect(realignCreateTargets.GetOutPort("intervals"))
+	realignIndels.GetInPort("bamnormal").Connect(markDupesNormalFanOut.GetOutPort("realign_indels"))
+	realignIndels.GetInPort("bamtumor").Connect(markDupesTumorFanOut.GetOutPort("realign_indels"))
+	realignIndels.SetPathStatic("realbam", "realbam.done.txt")
+	wf.AddProcess(realignIndels)
+
+	mainWfSink.Connect(realignIndels.GetOutPort("realbam"))
+
+	// --------------------------------------------------------------------------------
+	// Re-calibrate reads
+	// --------------------------------------------------------------------------------
+
+	// java -Xmx3g   -Djava.io.tmpdir="$SCRATCHDIR/tmp"   -jar $APPSDIR/gatk/GenomeAnalysisTK.jar   -T BaseRecalibrator   -R $REFDIR/human_g1k_v37_decoy.fasta   -I normal_0.md.real.bam   -knownSites $REFDIR/dbsnp_138.b37.vcf   -knownSites $REFDIR/1000G_phase1.indels.b37.vcf   -knownSites $REFDIR/Mills_and_1000G_gold_standard.indels.b37.vcf   -nct 4   -XL hs37d5   -XL NC_007605   -l INFO   -o normal.recal.table
+	// java -Xmx3g   -jar $APPSDIR/gatk/GenomeAnalysisTK.jar   -T PrintReads   -R $REFDIR/human_g1k_v37_decoy.fasta   -nct 4   -I normal_0.md.real.bam   -XL hs37d5   -XL NC_007605   --BQSR normal.recal.table   -o normal.recal.bam
+	//
+	// java -Xmx3g   -Djava.io.tmpdir="$SCRATCHDIR/tmp"   -jar $APPSDIR/gatk/GenomeAnalysisTK.jar   -T BaseRecalibrator   -R $REFDIR/human_g1k_v37_decoy.fasta   -I tumor_1.md.real.bam   -knownSites $REFDIR/dbsnp_138.b37.vcf   -knownSites $REFDIR/1000G_phase1.indels.b37.vcf   -knownSites $REFDIR/Mills_and_1000G_gold_standard.indels.b37.vcf   -nct 4   -XL hs37d5   -XL NC_007605   -l INFO   -o tumor.recal.table
+	// java -Xmx3g   -jar $APPSDIR/gatk/GenomeAnalysisTK.jar   -T PrintReads   -R $REFDIR/human_g1k_v37_decoy.fasta   -nct 4   -I tumor_1.md.real.bam   -XL hs37d5   -XL NC_007605   --BQSR tumor.recal.table   -o tumor.recal.bam
 
 	wf.AddProcess(mainWfSink)
 	wf.Run()
