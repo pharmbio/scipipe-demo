@@ -222,7 +222,9 @@ func main() {
 				-XL hs37d5 \
 				-XL NC_007605 \
 				--BQSR {i:recaltable} \
-				-o {o:recalbam}`)
+				-o {o:recalbam};
+				fname={o:recalbam};
+				mv $fname ${fname%.bam.tmp.bai}.bai;`)
 		printReads[st].GetInPort("realbam").Connect(realBamFanOut[st].GetOutPort("printreads"))
 		printReads[st].GetInPort("recaltable").Connect(reCalibrate[st].GetOutPort("recaltable"))
 		printReads[st].SetPathStatic("recalbam", st+".recal.bam")
