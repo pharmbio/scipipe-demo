@@ -4,6 +4,7 @@ import (
 	sp "github.com/scipipe/scipipe"
 	spcomp "github.com/scipipe/scipipe/components"
 	"strconv"
+	"strings"
 )
 
 func main() {
@@ -196,12 +197,26 @@ func main() {
 			-known `+refDir+`/Mills_and_1000G_gold_standard.indels.b37.vcf \
 			-XL hs37d5 \
 			-XL NC_007605 \
-			-nWayOut '.real.bam' # {o:realbamnormal} {o:realbamtumor}`)
+			-nWayOut '.real.bam.tmp' # {o:realbamnormal} {o:realbamtumor};
+			realn={o:realbamnormal};
+			realt={o:realbamtumor};
+			mv $realn.bai ${realn%.bam.tmp}.bai;
+			mv $realt.bai ${realt%.bam.tmp}.bai;`)
 	realignIndels.GetInPort("intervals").Connect(realignCreateTargets.GetOutPort("intervals"))
 	realignIndels.GetInPort("bamnormal").Connect(markDupesNormalFanOut.GetOutPort("realign_indels"))
 	realignIndels.GetInPort("bamtumor").Connect(markDupesTumorFanOut.GetOutPort("realign_indels"))
-	realignIndels.SetPathReplace("bamnormal", "realbamnormal", ".bam", ".real.bam")
-	realignIndels.SetPathReplace("bamtumor", "realbamtumor", ".bam", ".real.bam")
+	realignIndels.SetPathCustom("realbamnormal", func(t *sp.SciTask) string {
+		path := t.InTargets["bamnormal"].GetPath()
+		path = strings.Replace(path, ".bam", ".real.bam", -1)
+		path = strings.Replace(path, tmpDir+"/", "", -1)
+		return path
+	})
+	realignIndels.SetPathCustom("realbamtumor", func(t *sp.SciTask) string {
+		path := t.InTargets["bamtumor"].GetPath()
+		path = strings.Replace(path, ".bam", ".real.bam", -1)
+		path = strings.Replace(path, tmpDir+"/", "", -1)
+		return path
+	})
 	wf.AddProcess(realignIndels)
 
 	// --------------------------------------------------------------------------------
