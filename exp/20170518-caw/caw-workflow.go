@@ -60,10 +60,17 @@ func main() {
 	fqPaths1 := map[string][]string{}
 	fqPaths2 := map[string][]string{}
 
-	indexes := map[string][]string{}
-	indexes["normal"] = []string{"1", "2", "4", "7", "8"}
-	indexes["tumor"] = []string{"1", "2", "3", "5", "6", "7"}
+	indexes := map[string][]string{
+		"normal": []string{"1", "2", "4", "7", "8"},
+		"tumor":  []string{"1", "2", "3", "5", "6", "7"},
+	}
 	indexQueue := map[string]*ParamQueue{}
+
+	sampleTypes := map[string][]string{
+		"normal": []string{"normal", "normal", "normal", "normal", "normal"},
+		"tumor":  []string{"tumor", "tumor", "tumor", "tumor", "tumor", "tumor"},
+	}
+	stQueue := map[string]*ParamQueue{}
 
 	// Init some process "holders"
 	alignSamples := map[string]*sp.SciProcess{}
@@ -81,8 +88,12 @@ func main() {
 		appsDirMultiplicator[st].In.Connect(appsDirFanOut.GetOutPort(st))
 
 		si := strconv.Itoa(i)
+
 		indexQueue[st] = NewParamQueue(indexes[st]...)
 		wf.AddProcess(indexQueue[st])
+
+		stQueue[st] = NewParamQueue(sampleTypes[st]...)
+		wf.AddProcess(stQueue[st])
 
 		for _, idx := range indexes[st] {
 			fqPaths1[st] = append(fqPaths1[st], origDataDir+"/tiny_"+st+"_L00"+idx+"_R1.fastq.gz")
@@ -97,15 +108,16 @@ func main() {
 		readsFQ2[st] = sp.NewIPQueue(fqPaths2[st]...)
 		wf.AddProcess(readsFQ2[st])
 
-		alignSamples[st] = sp.NewFromShell("align_samples_"+st, "bwa mem -R \"@RG\tID:"+st+"_{p:index}\tSM:"+st+"\tLB:"+st+"\tPL:illumina\" -B 3 -t 4 -M "+refFasta+" {i:reads1} {i:reads2}"+
+		alignSamples[st] = sp.NewFromShell("align_samples_"+st, "bwa mem -R \"@RG\tID:{p:sample_type}_{p:index}\tSM:{p:sample_type}\tLB:{p:sample_type}\tPL:illumina\" -B 3 -t 4 -M "+refFasta+" {i:reads1} {i:reads2}"+
 			"| samtools view -bS -t "+refIndex+" - "+
 			"| samtools sort - > {o:bam} # {i:appsdir}")
 		alignSamples[st].GetInPort("reads1").Connect(readsFQ1[st].Out)
 		alignSamples[st].GetInPort("reads2").Connect(readsFQ2[st].Out)
 		alignSamples[st].GetInPort("appsdir").Connect(appsDirMultiplicator[st].Out)
 		alignSamples[st].ParamPorts["index"].Connect(indexQueue[st].Out)
+		alignSamples[st].ParamPorts["sample_type"].Connect(stQueue[st].Out)
 		alignSamples[st].PathFormatters["bam"] = func(t *sp.SciTask) string {
-			outPath := tmpDir + "/" + st + "_" + t.Params["index"] + ".bam"
+			outPath := tmpDir + "/" + t.Params["sample_type"] + "_" + t.Params["index"] + ".bam"
 			return outPath
 		}
 		wf.AddProcess(alignSamples[st])
