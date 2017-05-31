@@ -39,9 +39,16 @@ func main() {
 	untarApps.GetInPort("tar").Connect(unzipApps.GetOutPort("tar"))
 	wf.AddProcess(untarApps)
 
-	appsDirMultiplicator := NewFileMultiplicator(11)
-	appsDirMultiplicator.In.Connect(untarApps.GetOutPort("outdir"))
-	wf.AddProcess(appsDirMultiplicator)
+	appsDirFanOut := spcomp.NewFanOut()
+	appsDirFanOut.InFile.Connect(untarApps.GetOutPort("outdir"))
+	wf.AddProcess(appsDirFanOut)
+
+	appsDirMultiplicator := map[string]*FileMultiplicator{
+		"normal": NewFileMultiplicator(5),
+		"tumor":  NewFileMultiplicator(6),
+	}
+	wf.AddProcess(appsDirMultiplicator["normal"])
+	wf.AddProcess(appsDirMultiplicator["tumor"])
 
 	// ----------------------------------------------------------------------------
 	// Main Workflow
@@ -71,6 +78,8 @@ func main() {
 	mainWfSink := sp.NewSink()
 
 	for i, st := range []string{"normal", "tumor"} {
+		appsDirMultiplicator[st].In.Connect(appsDirFanOut.GetOutPort(st))
+
 		si := strconv.Itoa(i)
 		indexQueue[st] = NewParamQueue(indexes[st]...)
 		wf.AddProcess(indexQueue[st])
@@ -93,7 +102,7 @@ func main() {
 			"| samtools sort - > {o:bam} # {i:appsdir}")
 		alignSamples[st].GetInPort("reads1").Connect(readsFQ1[st].Out)
 		alignSamples[st].GetInPort("reads2").Connect(readsFQ2[st].Out)
-		alignSamples[st].GetInPort("appsdir").Connect(appsDirMultiplicator.Out)
+		alignSamples[st].GetInPort("appsdir").Connect(appsDirMultiplicator[st].Out)
 		alignSamples[st].ParamPorts["index"].Connect(indexQueue[st].Out)
 		alignSamples[st].PathFormatters["bam"] = func(t *sp.SciTask) string {
 			outPath := tmpDir + "/" + st + "_" + t.Params["index"] + ".bam"
