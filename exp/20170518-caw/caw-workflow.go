@@ -14,10 +14,10 @@ func main() {
 	// ------------------------------------------------
 
 	tmpDir := "tmp"
-	appsDir := "data/apps"
+	appsDir := "dat/apps"
 	refDir := appsDir + "/pipeline_test/ref"
 	origDataDir := appsDir + "/pipeline_test/data"
-	dataDir := "data"
+	dataDir := "dat"
 
 	// ----------------------------------------------------------------------------
 	// Data Download part of the workflow
