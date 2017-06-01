@@ -18,32 +18,6 @@ const (
 	origDataDir = appsDir + "/pipeline_test/data"
 )
 
-type DownloadWorkflow struct {
-	Pipeline *sp.Pipeline
-}
-
-func NewDownloadWorkflow(tumorIndexes []string, normalIndexes []string) *DownloadWorkflow {
-	pl := sp.NewPipeline()
-	wf := &DownloadWorkflow{Pipeline: pl}
-
-	pl.NewProc("download_apps", "wget http://uppnex.se/apps.tar.gz -O {o:apps}")
-	pl.GetProc("download_apps").SetPathStatic("apps", dataDir+"/uppnex_apps.tar.gz")
-
-	pl.NewProc("unzip_apps", "zcat {i:targz} > {o:tar}")
-	pl.GetProc("unzip_apps").SetPathReplace("targz", "tar", ".gz", "")
-	pl.Connect("unzip_apps.targz <- download_apps.apps")
-
-	pl.NewProc("untar_apps", "tar -xvf {i:tar} -C "+dataDir+" # {o:outdir}")
-	pl.GetProc("untar_apps").SetPathStatic("outdir", dataDir+"/apps")
-	pl.Connect("untar_apps.tar <- unzip_apps.tar")
-
-	return wf
-}
-
-func (wf *DownloadWorkflow) Run() {
-	wf.Pipeline.Run()
-}
-
 func main() {
 	// Output slightly more info than default
 	sp.InitLogInfo()
@@ -68,7 +42,7 @@ func main() {
 	// Data Download part of the workflow
 	// ----------------------------------------------------------------------------
 
-	downloadWf := NewDownloadWorkflow(indexes["tumor"], indexes["normal"])
+	downloadWf := NewDownloadWorkflow(dataDir)
 	downloadWf.Run()
 
 	// ----------------------------------------------------------------------------
@@ -272,6 +246,31 @@ func main() {
 
 	pr.AddProcess(mainWfSink)
 	pr.Run()
+}
+
+// ----------------------------------------------------------------------------
+// Sub-workflows
+// ----------------------------------------------------------------------------
+
+type DownloadWorkflow struct {
+	*sp.Pipeline
+}
+
+func NewDownloadWorkflow(dataDir string) *DownloadWorkflow {
+	wf := &DownloadWorkflow{sp.NewPipeline()}
+
+	wf.NewProc("download_apps", "wget http://uppnex.se/apps.tar.gz -O {o:apps}")
+	wf.GetProc("download_apps").SetPathStatic("apps", dataDir+"/uppnex_apps.tar.gz")
+
+	wf.NewProc("unzip_apps", "zcat {i:targz} > {o:tar}")
+	wf.GetProc("unzip_apps").SetPathReplace("targz", "tar", ".gz", "")
+	wf.Connect("unzip_apps.targz <- download_apps.apps")
+
+	wf.NewProc("untar_apps", "tar -xvf {i:tar} -C "+dataDir+" # {o:outdir}")
+	wf.GetProc("untar_apps").SetPathStatic("outdir", dataDir+"/apps")
+	wf.Connect("untar_apps.tar <- unzip_apps.tar")
+
+	return wf
 }
 
 // ----------------------------------------------------------------------------
