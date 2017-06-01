@@ -23,6 +23,22 @@ func main() {
 	sp.InitLogInfo()
 
 	// ----------------------------------------------------------------------------
+	// Some general stuff used in multiple places below
+	// ----------------------------------------------------------------------------
+
+	indexes := map[string][]string{
+		"normal": []string{"1", "2", "4", "7", "8"},
+		"tumor":  []string{"1", "2", "3", "5", "6", "7"},
+	}
+	indexQueue := map[string]*ParamQueue{}
+
+	sampleTypes := map[string][]string{
+		"normal": []string{"normal", "normal", "normal", "normal", "normal"},
+		"tumor":  []string{"tumor", "tumor", "tumor", "tumor", "tumor", "tumor"},
+	}
+	stQueue := map[string]*ParamQueue{}
+
+	// ----------------------------------------------------------------------------
 	// Data Download part of the workflow
 	// ----------------------------------------------------------------------------
 
@@ -43,12 +59,12 @@ func main() {
 	appsDirFanOut.InFile.Connect(untarApps.Out("outdir"))
 	pr.AddProcess(appsDirFanOut)
 
-	appsDirMultiplicator := map[string]*FileMultiplicator{
-		"normal": NewFileMultiplicator(5),
-		"tumor":  NewFileMultiplicator(6),
+	appsDirMultipl := map[string]*FileMultiplicator{
+		"normal": NewFileMultiplicator(len(indexes["normal"])),
+		"tumor":  NewFileMultiplicator(len(indexes["tumor"])),
 	}
-	pr.AddProcess(appsDirMultiplicator["normal"])
-	pr.AddProcess(appsDirMultiplicator["tumor"])
+	pr.AddProcess(appsDirMultipl["normal"])
+	pr.AddProcess(appsDirMultipl["tumor"])
 
 	// ----------------------------------------------------------------------------
 	// Main Workflow
@@ -57,20 +73,8 @@ func main() {
 	refFasta := refDir + "/human_g1k_v37_decoy.fasta"
 	refIndex := refDir + "/human_g1k_v37_decoy.fasta.fai"
 
-	fqPaths1 := map[string][]string{}
-	fqPaths2 := map[string][]string{}
-
-	indexes := map[string][]string{
-		"normal": []string{"1", "2", "4", "7", "8"},
-		"tumor":  []string{"1", "2", "3", "5", "6", "7"},
-	}
-	indexQueue := map[string]*ParamQueue{}
-
-	sampleTypes := map[string][]string{
-		"normal": []string{"normal", "normal", "normal", "normal", "normal"},
-		"tumor":  []string{"tumor", "tumor", "tumor", "tumor", "tumor", "tumor"},
-	}
-	stQueue := map[string]*ParamQueue{}
+	readsPaths1 := map[string][]string{}
+	readsPaths2 := map[string][]string{}
 
 	// Init some process "holders"
 	alignSamples := map[string]*sp.SciProcess{}
@@ -84,39 +88,39 @@ func main() {
 	// Init the main sink
 	mainWfSink := sp.NewSink()
 
-	for i, st := range []string{"normal", "tumor"} {
-		appsDirMultiplicator[st].In.Connect(appsDirFanOut.Out(st))
+	for i, smpltype := range []string{"normal", "tumor"} {
+		appsDirMultipl[smpltype].In.Connect(appsDirFanOut.Out(smpltype))
 
 		si := strconv.Itoa(i)
 
-		indexQueue[st] = NewParamQueue(indexes[st]...)
-		pr.AddProcess(indexQueue[st])
+		indexQueue[smpltype] = NewParamQueue(indexes[smpltype]...)
+		pr.AddProcess(indexQueue[smpltype])
 
-		stQueue[st] = NewParamQueue(sampleTypes[st]...)
-		pr.AddProcess(stQueue[st])
+		stQueue[smpltype] = NewParamQueue(sampleTypes[smpltype]...)
+		pr.AddProcess(stQueue[smpltype])
 
-		for _, idx := range indexes[st] {
-			fqPaths1[st] = append(fqPaths1[st], origDataDir+"/tiny_"+st+"_L00"+idx+"_R1.fastq.gz")
-			fqPaths2[st] = append(fqPaths2[st], origDataDir+"/tiny_"+st+"_L00"+idx+"_R2.fastq.gz")
+		for _, idx := range indexes[smpltype] {
+			readsPaths1[smpltype] = append(readsPaths1[smpltype], origDataDir+"/tiny_"+smpltype+"_L00"+idx+"_R1.fastq.gz")
+			readsPaths2[smpltype] = append(readsPaths2[smpltype], origDataDir+"/tiny_"+smpltype+"_L00"+idx+"_R2.fastq.gz")
 		}
 
 		// --------------------------------------------------------------------------------
 		// Align samples
 		// --------------------------------------------------------------------------------
-		readsFQ1[st] = sp.NewIPQueue(fqPaths1[st]...)
-		pr.AddProcess(readsFQ1[st])
-		readsFQ2[st] = sp.NewIPQueue(fqPaths2[st]...)
-		pr.AddProcess(readsFQ2[st])
+		readsFQ1[smpltype] = sp.NewIPQueue(readsPaths1[smpltype]...)
+		readsFQ2[smpltype] = sp.NewIPQueue(readsPaths2[smpltype]...)
+		pr.AddProcess(readsFQ1[smpltype])
+		pr.AddProcess(readsFQ2[smpltype])
 
-		alignSamples[st] = pr.NewFromShell("align_samples_"+st, "bwa mem -R \"@RG\tID:{p:smpltyp}_{p:indexno}\tSM:{p:smpltyp}\tLB:{p:smpltyp}\tPL:illumina\" -B 3 -t 4 -M "+refFasta+" {i:reads_1} {i:reads_2}"+
+		alignSamples[smpltype] = pr.NewFromShell("align_samples_"+smpltype, "bwa mem -R \"@RG\tID:{p:smpltyp}_{p:indexno}\tSM:{p:smpltyp}\tLB:{p:smpltyp}\tPL:illumina\" -B 3 -t 4 -M "+refFasta+" {i:reads_1} {i:reads_2}"+
 			"| samtools view -bS -t "+refIndex+" - "+
 			"| samtools sort - > {o:bam} # {i:appsdir}")
-		alignSamples[st].In("reads_1").Connect(readsFQ1[st].Out)
-		alignSamples[st].In("reads_2").Connect(readsFQ2[st].Out)
-		alignSamples[st].In("appsdir").Connect(appsDirMultiplicator[st].Out)
-		alignSamples[st].PP("indexno").Connect(indexQueue[st].Out)
-		alignSamples[st].PP("smpltyp").Connect(stQueue[st].Out)
-		alignSamples[st].SetPathCustom("bam", func(t *sp.SciTask) string {
+		alignSamples[smpltype].In("reads_1").Connect(readsFQ1[smpltype].Out)
+		alignSamples[smpltype].In("reads_2").Connect(readsFQ2[smpltype].Out)
+		alignSamples[smpltype].In("appsdir").Connect(appsDirMultipl[smpltype].Out)
+		alignSamples[smpltype].PP("indexno").Connect(indexQueue[smpltype].Out)
+		alignSamples[smpltype].PP("smpltyp").Connect(stQueue[smpltype].Out)
+		alignSamples[smpltype].SetPathCustom("bam", func(t *sp.SciTask) string {
 			outPath := tmpDir + "/" + t.Params["smpltyp"] + "_" + t.Params["indexno"] + ".bam"
 			return outPath
 		})
@@ -125,30 +129,30 @@ func main() {
 		// Merge BAMs
 		// --------------------------------------------------------------------------------
 
-		streamToSubstream[st] = spcomp.NewStreamToSubStream()
-		streamToSubstream[st].In.Connect(alignSamples[st].Out("bam"))
-		pr.AddProcess(streamToSubstream[st])
+		streamToSubstream[smpltype] = spcomp.NewStreamToSubStream()
+		streamToSubstream[smpltype].In.Connect(alignSamples[smpltype].Out("bam"))
+		pr.AddProcess(streamToSubstream[smpltype])
 
-		mergeBams[st] = pr.NewFromShell("merge_bams_"+st, "samtools merge -f {o:mergedbam} {i:bams:r: }")
-		mergeBams[st].In("bams").Connect(streamToSubstream[st].OutSubStream)
-		mergeBams[st].SetPathStatic("mergedbam", tmpDir+"/"+st+".bam")
+		mergeBams[smpltype] = pr.NewFromShell("merge_bams_"+smpltype, "samtools merge -f {o:mergedbam} {i:bams:r: }")
+		mergeBams[smpltype].In("bams").Connect(streamToSubstream[smpltype].OutSubStream)
+		mergeBams[smpltype].SetPathStatic("mergedbam", tmpDir+"/"+smpltype+".bam")
 
 		// --------------------------------------------------------------------------------
 		// Mark Duplicates
 		// --------------------------------------------------------------------------------
 
-		markDupes[st] = pr.NewFromShell("mark_dupes_"+st,
+		markDupes[smpltype] = pr.NewFromShell("mark_dupes_"+smpltype,
 			`java -Xmx15g -jar `+appsDir+`/picard-tools-1.118/MarkDuplicates.jar \
 				INPUT={i:bam} \
-				METRICS_FILE=`+tmpDir+`/`+st+`_`+si+`.md.bam \
+				METRICS_FILE=`+tmpDir+`/`+smpltype+`_`+si+`.md.bam \
 				TMP_DIR=`+tmpDir+` \
 				ASSUME_SORTED=true \
 				VALIDATION_STRINGENCY=LENIENT \
 				CREATE_INDEX=TRUE \
 				OUTPUT={o:bam}; \
-				mv `+tmpDir+`/`+st+`_`+si+`.md{.bam.tmp,}.bai;`)
-		markDupes[st].SetPathStatic("bam", tmpDir+"/"+st+"_"+si+".md.bam")
-		markDupes[st].In("bam").Connect(mergeBams[st].Out("mergedbam"))
+				mv `+tmpDir+`/`+smpltype+`_`+si+`.md{.bam.tmp,}.bai;`)
+		markDupes[smpltype].SetPathStatic("bam", tmpDir+"/"+smpltype+"_"+si+".md.bam")
+		markDupes[smpltype].In("bam").Connect(mergeBams[smpltype].Out("mergedbam"))
 	}
 
 	// --------------------------------------------------------------------------------
@@ -222,13 +226,13 @@ func main() {
 	reCalibrate := map[string]*sp.SciProcess{}
 	printReads := map[string]*sp.SciProcess{}
 
-	for _, st := range []string{"normal", "tumor"} {
+	for _, smpltype := range []string{"normal", "tumor"} {
 
-		realBamFanOut[st] = spcomp.NewFanOut()
-		realBamFanOut[st].InFile.Connect(realignIndels.Out("realbam" + st))
-		pr.AddProcess(realBamFanOut[st])
+		realBamFanOut[smpltype] = spcomp.NewFanOut()
+		realBamFanOut[smpltype].InFile.Connect(realignIndels.Out("realbam" + smpltype))
+		pr.AddProcess(realBamFanOut[smpltype])
 
-		reCalibrate[st] = pr.NewFromShell("recalibrate_"+st,
+		reCalibrate[smpltype] = pr.NewFromShell("recalibrate_"+smpltype,
 			`java -Xmx3g -Djava.io.tmpdir=`+tmpDir+` -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T BaseRecalibrator \
 				-R `+refDir+`/human_g1k_v37_decoy.fasta \
 				-I {i:realbam} \
@@ -240,10 +244,10 @@ func main() {
 				-XL NC_007605 \
 				-l INFO \
 				-o {o:recaltable}`)
-		reCalibrate[st].In("realbam").Connect(realBamFanOut[st].Out("recal"))
-		reCalibrate[st].SetPathStatic("recaltable", tmpDir+"/"+st+".recal.table")
+		reCalibrate[smpltype].In("realbam").Connect(realBamFanOut[smpltype].Out("recal"))
+		reCalibrate[smpltype].SetPathStatic("recaltable", tmpDir+"/"+smpltype+".recal.table")
 
-		printReads[st] = pr.NewFromShell("print_reads_"+st,
+		printReads[smpltype] = pr.NewFromShell("print_reads_"+smpltype,
 			`java -Xmx3g -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T PrintReads \
 				-R `+refDir+`/human_g1k_v37_decoy.fasta \
 				-nct 4 \
@@ -254,11 +258,11 @@ func main() {
 				-o {o:recalbam};
 				fname={o:recalbam};
 				mv $fname.bai ${fname%.bam.tmp}.bai;`)
-		printReads[st].In("realbam").Connect(realBamFanOut[st].Out("printreads"))
-		printReads[st].In("recaltable").Connect(reCalibrate[st].Out("recaltable"))
-		printReads[st].SetPathStatic("recalbam", st+".recal.bam")
+		printReads[smpltype].In("realbam").Connect(realBamFanOut[smpltype].Out("printreads"))
+		printReads[smpltype].In("recaltable").Connect(reCalibrate[smpltype].Out("recaltable"))
+		printReads[smpltype].SetPathStatic("recalbam", smpltype+".recal.bam")
 
-		mainWfSink.Connect(printReads[st].Out("recalbam"))
+		mainWfSink.Connect(printReads[smpltype].Out("recalbam"))
 	}
 
 	pr.AddProcess(mainWfSink)
@@ -267,6 +271,11 @@ func main() {
 
 // ----------------------------------------------------------------------------
 // Helper processes
+// ----------------------------------------------------------------------------
+
+type CombinatorCreator struct {
+}
+
 // ----------------------------------------------------------------------------
 
 type ParamQueue struct {
