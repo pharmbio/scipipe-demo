@@ -18,6 +18,32 @@ const (
 	origDataDir = appsDir + "/pipeline_test/data"
 )
 
+type DownloadWorkflow struct {
+	Pipeline *sp.Pipeline
+}
+
+func NewDownloadWorkflow(tumorIndexes []string, normalIndexes []string) *DownloadWorkflow {
+	pl := sp.NewPipeline()
+	wf := &DownloadWorkflow{Pipeline: pl}
+
+	pl.NewProc("download_apps", "wget http://uppnex.se/apps.tar.gz -O {o:apps}")
+	pl.GetProc("download_apps").SetPathStatic("apps", dataDir+"/uppnex_apps.tar.gz")
+
+	pl.NewProc("unzip_apps", "zcat {i:targz} > {o:tar}")
+	pl.GetProc("unzip_apps").SetPathReplace("targz", "tar", ".gz", "")
+	pl.Connect("unzip_apps.targz <- download_apps.apps")
+
+	pl.NewProc("untar_apps", "tar -xvf {i:tar} -C "+dataDir+" # {o:outdir}")
+	pl.GetProc("untar_apps").SetPathStatic("outdir", dataDir+"/apps")
+	pl.Connect("untar_apps.tar <- unzip_apps.tar")
+
+	return wf
+}
+
+func (wf *DownloadWorkflow) Run() {
+	wf.Pipeline.Run()
+}
+
 func main() {
 	// Output slightly more info than default
 	sp.InitLogInfo()
@@ -42,33 +68,14 @@ func main() {
 	// Data Download part of the workflow
 	// ----------------------------------------------------------------------------
 
-	pr := sp.NewPipelineRunner()
-
-	downloadApps := pr.NewFromShell("download_apps", "wget http://uppnex.se/apps.tar.gz -O {o:apps}")
-	downloadApps.SetPathStatic("apps", dataDir+"/uppnex_apps.tar.gz")
-
-	unzipApps := pr.NewFromShell("unzip_apps", "zcat {i:targz} > {o:tar}")
-	unzipApps.SetPathReplace("targz", "tar", ".gz", "")
-	unzipApps.In("targz").Connect(downloadApps.Out("apps"))
-
-	untarApps := pr.NewFromShell("untar_apps", "tar -xvf {i:tar} -C "+dataDir+" # {o:outdir}")
-	untarApps.SetPathStatic("outdir", dataDir+"/apps")
-	untarApps.In("tar").Connect(unzipApps.Out("tar"))
-
-	appsDirFanOut := spcomp.NewFanOut()
-	appsDirFanOut.InFile.Connect(untarApps.Out("outdir"))
-	pr.AddProcess(appsDirFanOut)
-
-	appsDirMultipl := map[string]*FileMultiplicator{
-		"normal": NewFileMultiplicator(len(indexes["normal"])),
-		"tumor":  NewFileMultiplicator(len(indexes["tumor"])),
-	}
-	pr.AddProcess(appsDirMultipl["normal"])
-	pr.AddProcess(appsDirMultipl["tumor"])
+	downloadWf := NewDownloadWorkflow(indexes["tumor"], indexes["normal"])
+	downloadWf.Run()
 
 	// ----------------------------------------------------------------------------
 	// Main Workflow
 	// ----------------------------------------------------------------------------
+
+	pr := sp.NewPipelineRunner()
 
 	refFasta := refDir + "/human_g1k_v37_decoy.fasta"
 	refIndex := refDir + "/human_g1k_v37_decoy.fasta.fai"
@@ -89,7 +96,6 @@ func main() {
 	mainWfSink := sp.NewSink()
 
 	for i, smpltype := range []string{"normal", "tumor"} {
-		appsDirMultipl[smpltype].In.Connect(appsDirFanOut.Out(smpltype))
 
 		si := strconv.Itoa(i)
 
@@ -114,10 +120,9 @@ func main() {
 
 		alignSamples[smpltype] = pr.NewFromShell("align_samples_"+smpltype, "bwa mem -R \"@RG\tID:{p:smpltyp}_{p:indexno}\tSM:{p:smpltyp}\tLB:{p:smpltyp}\tPL:illumina\" -B 3 -t 4 -M "+refFasta+" {i:reads_1} {i:reads_2}"+
 			"| samtools view -bS -t "+refIndex+" - "+
-			"| samtools sort - > {o:bam} # {i:appsdir}")
+			"| samtools sort - > {o:bam}")
 		alignSamples[smpltype].In("reads_1").Connect(readsFQ1[smpltype].Out)
 		alignSamples[smpltype].In("reads_2").Connect(readsFQ2[smpltype].Out)
-		alignSamples[smpltype].In("appsdir").Connect(appsDirMultipl[smpltype].Out)
 		alignSamples[smpltype].PP("indexno").Connect(indexQueue[smpltype].Out)
 		alignSamples[smpltype].PP("smpltyp").Connect(stQueue[smpltype].Out)
 		alignSamples[smpltype].SetPathCustom("bam", func(t *sp.SciTask) string {
