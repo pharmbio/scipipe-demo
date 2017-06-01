@@ -273,7 +273,14 @@ func main() {
 // Helper processes
 // ----------------------------------------------------------------------------
 
-type CombinatorCreator struct {
+type CombinationCreator struct {
+}
+
+func NewCombinationCreator(paramVals map[string][]string) *CombinationCreator {
+	for _, _ = range paramVals {
+
+	}
+	return &CombinationCreator{}
 }
 
 // ----------------------------------------------------------------------------
