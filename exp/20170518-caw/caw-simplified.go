@@ -95,6 +95,7 @@ func main() {
 		pl.GetProc("align_samples_" + st).GetInPort("appsdir").Connect(appsDirMultipl.Out)
 		pl.GetProc("align_samples_" + st).ParamPorts["index"].Connect(indexQueue[st].Out)
 		pl.GetProc("align_samples_"+st).SetPathCustom("bam", func(t *sp.SciTask) string {
+			st := st // needed to work around Go's funny behaviour of closures
 			outPath := tmpDir + "/" + st + "_" + t.Params["index"] + ".bam"
 			return outPath
 		})
