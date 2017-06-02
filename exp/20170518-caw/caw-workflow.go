@@ -40,12 +40,14 @@ func main() {
 
 	// Some parameter stuff used below
 
+	sampleTypes := []string{"normal", "tumor"}
+
 	indexes := map[string][]string{
 		"normal": {"1", "2", "4", "7", "8"},
 		"tumor":  {"1", "2", "3", "5", "6", "7"},
 	}
 
-	sampleTypes := map[string][]string{
+	sampleTypeLists := map[string][]string{
 		"normal": {"normal", "normal", "normal", "normal", "normal"},
 		"tumor":  {"tumor", "tumor", "tumor", "tumor", "tumor", "tumor"},
 	}
@@ -54,21 +56,20 @@ func main() {
 	// to access the normal and tumor verions specifically
 	markDupesProcs := map[string]*sp.SciProcess{}
 
-	for i, smpltype := range []string{"normal", "tumor"} {
-
+	for i, sampleType := range sampleTypes {
 		si := strconv.Itoa(i)
 
-		indexQueue := NewParamQueue(indexes[smpltype]...)
+		indexQueue := NewParamQueue(indexes[sampleType]...)
 		pr.AddProcess(indexQueue)
 
-		stQueue := NewParamQueue(sampleTypes[smpltype]...)
+		stQueue := NewParamQueue(sampleTypeLists[sampleType]...)
 		pr.AddProcess(stQueue)
 
 		readsPaths1 := []string{}
 		readsPaths2 := []string{}
-		for _, idx := range indexes[smpltype] {
-			readsPaths1 = append(readsPaths1, origDataDir+"/tiny_"+smpltype+"_L00"+idx+"_R1.fastq.gz")
-			readsPaths2 = append(readsPaths2, origDataDir+"/tiny_"+smpltype+"_L00"+idx+"_R2.fastq.gz")
+		for _, idx := range indexes[sampleType] {
+			readsPaths1 = append(readsPaths1, origDataDir+"/tiny_"+sampleType+"_L00"+idx+"_R1.fastq.gz")
+			readsPaths2 = append(readsPaths2, origDataDir+"/tiny_"+sampleType+"_L00"+idx+"_R2.fastq.gz")
 		}
 
 		// --------------------------------------------------------------------------------
@@ -80,7 +81,7 @@ func main() {
 		readsFQ2 := sp.NewIPQueue(readsPaths2...)
 		pr.AddProcess(readsFQ2)
 
-		alignSamples := NewBwaAlign("align_samples", smpltype, refFasta, refIndex)
+		alignSamples := NewBwaAlign("align_samples", sampleType, refFasta, refIndex)
 		alignSamples.InReads1().Connect(readsFQ1.Out)
 		alignSamples.InReads2().Connect(readsFQ2.Out)
 		alignSamples.PPIndexNo().Connect(indexQueue.Out)
@@ -95,28 +96,28 @@ func main() {
 		streamToSubstream.In.Connect(alignSamples.OutBam())
 		pr.AddProcess(streamToSubstream)
 
-		mergeBams := pr.NewFromShell("merge_bams_"+smpltype, "samtools merge -f {o:mergedbam} {i:bams:r: }")
+		mergeBams := pr.NewFromShell("merge_bams_"+sampleType, "samtools merge -f {o:mergedbam} {i:bams:r: }")
 		mergeBams.In("bams").Connect(streamToSubstream.OutSubStream)
-		mergeBams.SetPathStatic("mergedbam", tmpDir+"/"+smpltype+".bam")
+		mergeBams.SetPathStatic("mergedbam", tmpDir+"/"+sampleType+".bam")
 
 		// --------------------------------------------------------------------------------
 		// Mark Duplicates
 		// --------------------------------------------------------------------------------
 
-		markDupes := pr.NewFromShell("mark_dupes_"+smpltype,
+		markDupes := pr.NewFromShell("mark_dupes_"+sampleType,
 			`java -Xmx15g -jar `+appsDir+`/picard-tools-1.118/MarkDuplicates.jar \
 				INPUT={i:bam} \
-				METRICS_FILE=`+tmpDir+`/`+smpltype+`_`+si+`.md.bam \
+				METRICS_FILE=`+tmpDir+`/`+sampleType+`_`+si+`.md.bam \
 				TMP_DIR=`+tmpDir+` \
 				ASSUME_SORTED=true \
 				VALIDATION_STRINGENCY=LENIENT \
 				CREATE_INDEX=TRUE \
 				OUTPUT={o:bam}; \
-				mv `+tmpDir+`/`+smpltype+`_`+si+`.md{.bam.tmp,}.bai;`)
-		markDupes.SetPathStatic("bam", tmpDir+"/"+smpltype+"_"+si+".md.bam")
+				mv `+tmpDir+`/`+sampleType+`_`+si+`.md{.bam.tmp,}.bai;`)
+		markDupes.SetPathStatic("bam", tmpDir+"/"+sampleType+"_"+si+".md.bam")
 		markDupes.In("bam").Connect(mergeBams.Out("mergedbam"))
 
-		markDupesProcs[smpltype] = markDupes
+		markDupesProcs[sampleType] = markDupes
 	}
 
 	// --------------------------------------------------------------------------------
@@ -177,8 +178,8 @@ func main() {
 	// Re-calibrate reads
 	// --------------------------------------------------------------------------------
 
-	for _, smpltype := range []string{"normal", "tumor"} {
-		reCalibrate := pr.NewFromShell("recalibrate_"+smpltype,
+	for _, sampleType := range sampleTypes {
+		reCalibrate := pr.NewFromShell("recalibrate_"+sampleType,
 			`java -Xmx3g -Djava.io.tmpdir=`+tmpDir+` -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T BaseRecalibrator \
 				-R `+refDir+`/human_g1k_v37_decoy.fasta \
 				-I {i:realbam} \
@@ -190,10 +191,10 @@ func main() {
 				-XL NC_007605 \
 				-l INFO \
 				-o {o:recaltable}`)
-		reCalibrate.In("realbam").Connect(realignIndels.Out("realbam" + smpltype))
-		reCalibrate.SetPathStatic("recaltable", tmpDir+"/"+smpltype+".recal.table")
+		reCalibrate.In("realbam").Connect(realignIndels.Out("realbam" + sampleType))
+		reCalibrate.SetPathStatic("recaltable", tmpDir+"/"+sampleType+".recal.table")
 
-		printReads := pr.NewFromShell("print_reads_"+smpltype,
+		printReads := pr.NewFromShell("print_reads_"+sampleType,
 			`java -Xmx3g -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T PrintReads \
 				-R `+refDir+`/human_g1k_v37_decoy.fasta \
 				-nct 4 \
@@ -204,9 +205,9 @@ func main() {
 				-o {o:recalbam};
 				fname={o:recalbam};
 				mv $fname.bai ${fname%.bam.tmp}.bai;`)
-		printReads.In("realbam").Connect(realignIndels.Out("realbam" + smpltype))
+		printReads.In("realbam").Connect(realignIndels.Out("realbam" + sampleType))
 		printReads.In("recaltable").Connect(reCalibrate.Out("recaltable"))
-		printReads.SetPathStatic("recalbam", smpltype+".recal.bam")
+		printReads.SetPathStatic("recalbam", sampleType+".recal.bam")
 
 		mainWfSink.Connect(printReads.Out("recalbam"))
 	}
