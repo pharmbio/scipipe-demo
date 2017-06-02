@@ -41,13 +41,13 @@ func main() {
 	// Some parameter stuff used below
 
 	indexes := map[string][]string{
-		"normal": []string{"1", "2", "4", "7", "8"},
-		"tumor":  []string{"1", "2", "3", "5", "6", "7"},
+		"normal": {"1", "2", "4", "7", "8"},
+		"tumor":  {"1", "2", "3", "5", "6", "7"},
 	}
 
 	sampleTypes := map[string][]string{
-		"normal": []string{"normal", "normal", "normal", "normal", "normal"},
-		"tumor":  []string{"tumor", "tumor", "tumor", "tumor", "tumor", "tumor"},
+		"normal": {"normal", "normal", "normal", "normal", "normal"},
+		"tumor":  {"tumor", "tumor", "tumor", "tumor", "tumor", "tumor"},
 	}
 
 	// Init a process "holder" for the final process in this part, as we need
