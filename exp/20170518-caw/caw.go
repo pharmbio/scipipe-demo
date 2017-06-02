@@ -7,10 +7,9 @@ import (
 	"strings"
 )
 
+// Set up some paths
+
 const (
-	// ------------------------------------------------
-	// Set up paths
-	// ------------------------------------------------
 	tmpDir      = "tmp"
 	dataDir     = "dat"
 	appsDir     = dataDir + "/apps"
@@ -24,29 +23,24 @@ func main() {
 	// Output slightly more info than default
 	sp.InitLogInfo()
 
-	// ----------------------------------------------------------------------------
-	// Data Download part of the workflow
-	// ----------------------------------------------------------------------------
+	// Run the Data Download part of the workflow
+	downloadDataWorkflow := NewDownloadWorkflow(dataDir)
+	downloadDataWorkflow.Run()
 
-	downloadWf := NewDownloadWorkflow(dataDir)
-	downloadWf.Run()
+	// ------------------------------------------------
+	// Main workflow starts here
+	// ------------------------------------------------
 
-	// ----------------------------------------------------------------------------
-	// Main Workflow
-	// ----------------------------------------------------------------------------
-
+	// Some technical initialization
 	pr := sp.NewPipelineRunner()
 	mainWfSink := sp.NewSink()
 
 	// Some parameter stuff used below
-
 	sampleTypes := []string{"normal", "tumor"}
-
 	indexes := map[string][]string{
 		"normal": {"1", "2", "4", "7", "8"},
 		"tumor":  {"1", "2", "3", "5", "6", "7"},
 	}
-
 	sampleTypeLists := map[string][]string{
 		"normal": {"normal", "normal", "normal", "normal", "normal"},
 		"tumor":  {"tumor", "tumor", "tumor", "tumor", "tumor", "tumor"},
@@ -74,7 +68,6 @@ func main() {
 		}
 
 		// Align samples
-
 		readsFQ1 := sp.NewIPQueue(readsPaths1...)
 		pr.AddProcess(readsFQ1)
 
@@ -88,7 +81,6 @@ func main() {
 		alignSamples.PPSampleType().Connect(stQueue.Out)
 
 		// Merge BAMs
-
 		streamToSubstream := spcomp.NewStreamToSubStream()
 		streamToSubstream.In.Connect(alignSamples.OutBam())
 		pr.AddProcess(streamToSubstream)
@@ -97,72 +89,46 @@ func main() {
 		mergeBams.InBams().Connect(streamToSubstream.OutSubStream)
 
 		// Mark Duplicates
-
 		markDupes := NewGATKMarkDuplicates(pr, "mark_duplicates", sampleType, si, appsDir, tmpDir)
 		markDupes.InBam().Connect(mergeBams.OutMergedBam())
-
 		markDupesProcs[sampleType] = markDupes
 	}
 
 	// Re-align Reads - Create Targets
-
 	realignCreateTargets := NewGATKRealignCreateTargets(pr, "realign_create_targets", appsDir, tmpDir)
 	realignCreateTargets.In("bamnormal").Connect(markDupesProcs["normal"].OutBam())
 	realignCreateTargets.In("bamtumor").Connect(markDupesProcs["tumor"].OutBam())
 
 	// Re-align Reads - Re-align Indels
-
 	realignIndels := NewGATKRealignIndels(pr, "realign_indels", appsDir, refDir, tmpDir)
 	realignIndels.InIntervals().Connect(realignCreateTargets.OutIntervals())
 	realignIndels.InBamNormal().Connect(markDupesProcs["normal"].OutBam())
 	realignIndels.InBamTumor().Connect(markDupesProcs["tumor"].OutBam())
 
 	for _, sampleType := range sampleTypes {
-
 		// Re-calibrate reads
-
-		reCalibrate := pr.NewFromShell("recalibrate_"+sampleType,
-			`java -Xmx3g -Djava.io.tmpdir=`+tmpDir+` -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T BaseRecalibrator \
-				-R `+refDir+`/human_g1k_v37_decoy.fasta \
-				-I {i:realbam} \
-				-knownSites `+refDir+`/dbsnp_138.b37.vcf \
-				-knownSites `+refDir+`/1000G_phase1.indels.b37.vcf \
-				-knownSites `+refDir+`/Mills_and_1000G_gold_standard.indels.b37.vcf \
-				-nct 4 \
-				-XL hs37d5 \
-				-XL NC_007605 \
-				-l INFO \
-				-o {o:recaltable}`)
-		reCalibrate.In("realbam").Connect(realignIndels.Out("realbam" + sampleType))
-		reCalibrate.SetPathStatic("recaltable", tmpDir+"/"+sampleType+".recal.table")
+		reCalibrate := NewGATKRecalibrate(pr, "recalibrate", sampletype, appsdir, refDir, tmpDir)
+		reCalibrate.InRealBam().Connect(realignIndels.Out("realbam" + sampleType))
 
 		// Print reads
-
-		printReads := pr.NewFromShell("print_reads_"+sampleType,
-			`java -Xmx3g -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T PrintReads \
-				-R `+refDir+`/human_g1k_v37_decoy.fasta \
-				-nct 4 \
-				-I {i:realbam} \
-				-XL hs37d5 \
-				-XL NC_007605 \
-				--BQSR {i:recaltable} \
-				-o {o:recalbam};
-				fname={o:recalbam};
-				mv $fname.bai ${fname%.bam.tmp}.bai;`)
+		printReads := NewGATKPrintReads(pr, "print_reads", sampleType, appsdir, refDir)
 		printReads.In("realbam").Connect(realignIndels.Out("realbam" + sampleType))
 		printReads.In("recaltable").Connect(reCalibrate.Out("recaltable"))
-		printReads.SetPathStatic("recalbam", sampleType+".recal.bam")
-
 		mainWfSink.Connect(printReads.Out("recalbam"))
 	}
 
+	// Run
 	pr.AddProcess(mainWfSink)
 	pr.Run()
 }
 
-// ============================================================================
+////////////////////////////////////////////////////////////////////////////////////////////////////
 // Sub-workflows
-// ============================================================================
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// ----------------------------------------------------------------------------
+// Data download workflow
+// ----------------------------------------------------------------------------
 
 type DownloadWorkflow struct {
 	*sp.Pipeline
@@ -185,9 +151,9 @@ func NewDownloadWorkflow(dataDir string) *DownloadWorkflow {
 	return wf
 }
 
-// ============================================================================
+////////////////////////////////////////////////////////////////////////////////////////////////////
 // Component library
-// ============================================================================
+////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // ----------------------------------------------------------------------------
 // BWA Align
@@ -329,3 +295,58 @@ func (p *GATKRealignIndels) InBamTumor() *sp.FilePort       { return p.In("bamtu
 func (p *GATKRealignIndels) InIntervals() *sp.FilePort      { return p.In("intervals") }
 func (p *GATKRealignIndels) OutRealBamNormal() *sp.FilePort { return p.In("realbamnormal") }
 func (p *GATKRealignIndels) OutRealBamTumor() *sp.FilePort  { return p.In("realbamtumor") }
+
+// ----------------------------------------------------------------------------
+// GATK Recalibrate
+// ----------------------------------------------------------------------------
+
+type GATKRecalibrate struct {
+	*sp.SciProcess
+}
+
+func NewGATKRecalibrate(pr *sp.PipelineRunner, procName string, sampletype string, appsdir string, refDir string, tmpDir string) *GATKRecalibrate {
+	inner := pr.NewFromShell(procName+"_"+sampleType,
+		`java -Xmx3g -Djava.io.tmpdir=`+tmpDir+` -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T BaseRecalibrator \
+				-R `+refDir+`/human_g1k_v37_decoy.fasta \
+				-I {i:realbam} \
+				-knownSites `+refDir+`/dbsnp_138.b37.vcf \
+				-knownSites `+refDir+`/1000G_phase1.indels.b37.vcf \
+				-knownSites `+refDir+`/Mills_and_1000G_gold_standard.indels.b37.vcf \
+				-nct 4 \
+				-XL hs37d5 \
+				-XL NC_007605 \
+				-l INFO \
+				-o {o:recaltable}`)
+	inner.SetPathStatic("recaltable", tmpDir+"/"+sampleType+".recal.table")
+	return &GATKRecalibrate{inner}
+}
+
+func (p *GATKRecalibrate) InRealBam() *sp.FilePort     { return p.In("realbam") }
+func (p *GATKRecalibrate) OutRecalTable() *sp.FilePort { return p.Out("recaltable") }
+
+// ----------------------------------------------------------------------------
+// GATK Realign Indels
+// ----------------------------------------------------------------------------
+
+type GATKPrintReads struct {
+	*sp.SciProcess
+}
+
+func NewGATKPrintReads(pr *sp.PipelineRunner, procName string, sampleType string, appsdir string, refDir string) *GATKPrintReads {
+	inner := pr.NewFromShell(procName+"_"+sampleType,
+		`java -Xmx3g -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T PrintReads \
+				-R `+refDir+`/human_g1k_v37_decoy.fasta \
+				-nct 4 \
+				-I {i:realbam} \
+				-XL hs37d5 \
+				-XL NC_007605 \
+				--BQSR {i:recaltable} \
+				-o {o:recalbam};
+				fname={o:recalbam};
+				mv $fname.bai ${fname%.bam.tmp}.bai;`)
+	inner.SetPathStatic("recalbam", sampleType+".recal.bam")
+	return &GATKPrintReads{inner}
+}
+
+func (p *GATKPrintReads) InRealBam() *sp.FilePort   { return p.In("realbam") }
+func (p *GATKPrintReads) OutRecalBam() *sp.FilePort { return p.Out("recalbam") }
