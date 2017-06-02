@@ -81,12 +81,11 @@ func main() {
 		readsFQ2 := sp.NewIPQueue(readsPaths2...)
 		pr.AddProcess(readsFQ2)
 
-		alignSamples := NewBwaAlign("align_samples", sampleType, refFasta, refIndex)
+		alignSamples := NewBwaAlign(pr, "align_samples", sampleType, refFasta, refIndex)
 		alignSamples.InReads1().Connect(readsFQ1.Out)
 		alignSamples.InReads2().Connect(readsFQ2.Out)
 		alignSamples.PPIndexNo().Connect(indexQueue.Out)
 		alignSamples.PPSampleType().Connect(stQueue.Out)
-		pr.AddProcess(alignSamples)
 
 		// --------------------------------------------------------------------------------
 		// Merge BAMs
@@ -96,9 +95,8 @@ func main() {
 		streamToSubstream.In.Connect(alignSamples.OutBam())
 		pr.AddProcess(streamToSubstream)
 
-		mergeBams := pr.NewFromShell("merge_bams_"+sampleType, "samtools merge -f {o:mergedbam} {i:bams:r: }")
-		mergeBams.In("bams").Connect(streamToSubstream.OutSubStream)
-		mergeBams.SetPathStatic("mergedbam", tmpDir+"/"+sampleType+".bam")
+		mergeBams := NewSamtoolsMerge(pr, "merge_bams", sampleType, tmpDir)
+		mergeBams.InBams().Connect(streamToSubstream.OutSubStream)
 
 		// --------------------------------------------------------------------------------
 		// Mark Duplicates
@@ -241,16 +239,20 @@ func NewDownloadWorkflow(dataDir string) *DownloadWorkflow {
 	return wf
 }
 
-// ----------------------------------------------------------------------------
+// ============================================================================
 // Component library
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// BWA Align
 // ----------------------------------------------------------------------------
 
 type BwaAlign struct {
 	*sp.SciProcess
 }
 
-func NewBwaAlign(procIdPrefix string, sampleType string, refFasta string, refIndex string) *BwaAlign {
-	innerBwaAlign := sp.NewFromShell(procIdPrefix+"_"+sampleType, "bwa mem -R \"@RG\tID:{p:smpltyp}_{p:indexno}\tSM:{p:smpltyp}\tLB:{p:smpltyp}\tPL:illumina\" -B 3 -t 4 -M "+refFasta+" {i:reads_1} {i:reads_2}"+
+func NewBwaAlign(pr *sp.PipelineRunner, procName string, sampleType string, refFasta string, refIndex string) *BwaAlign {
+	innerBwaAlign := pr.NewFromShell(procName+"_"+sampleType, "bwa mem -R \"@RG\tID:{p:smpltyp}_{p:indexno}\tSM:{p:smpltyp}\tLB:{p:smpltyp}\tPL:illumina\" -B 3 -t 4 -M "+refFasta+" {i:reads_1} {i:reads_2}"+
 		"| samtools view -bS -t "+refIndex+" - "+
 		"| samtools sort - > {o:bam}")
 	innerBwaAlign.SetPathCustom("bam", func(t *sp.SciTask) string {
@@ -265,3 +267,20 @@ func (p *BwaAlign) PPSampleType() *sp.ParamPort { return p.PP("smpltyp") }
 func (p *BwaAlign) InReads1() *sp.FilePort      { return p.In("reads_1") }
 func (p *BwaAlign) InReads2() *sp.FilePort      { return p.In("reads_2") }
 func (p *BwaAlign) OutBam() *sp.FilePort        { return p.Out("bam") }
+
+// ----------------------------------------------------------------------------
+// Samtools Merge
+// ----------------------------------------------------------------------------
+
+type SamtoolsMerge struct {
+	*sp.SciProcess
+}
+
+func NewSamtoolsMerge(pr *sp.PipelineRunner, procName string, sampleType string, tmpDir string) *SamtoolsMerge {
+	innerSamtoolsMerge := pr.NewFromShell(procName+"_"+sampleType, "samtools merge -f {o:mergedbam} {i:bams:r: }")
+	innerSamtoolsMerge.SetPathStatic("mergedbam", tmpDir+"/"+sampleType+".bam")
+	return &SamtoolsMerge{innerSamtoolsMerge}
+}
+
+func (p *SamtoolsMerge) InBams() *sp.FilePort       { return p.In("bams") }
+func (p *SamtoolsMerge) OutMergedBam() *sp.FilePort { return p.In("mergedbam") }
