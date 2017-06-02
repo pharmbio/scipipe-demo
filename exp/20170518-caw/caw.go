@@ -107,11 +107,11 @@ func main() {
 
 	for _, sampleType := range sampleTypes {
 		// Re-calibrate reads
-		reCalibrate := NewGATKRecalibrate(pr, "recalibrate", sampletype, appsdir, refDir, tmpDir)
+		reCalibrate := NewGATKRecalibrate(pr, "recalibrate", sampleType, appsDir, refDir, tmpDir)
 		reCalibrate.InRealBam().Connect(realignIndels.Out("realbam" + sampleType))
 
 		// Print reads
-		printReads := NewGATKPrintReads(pr, "print_reads", sampleType, appsdir, refDir)
+		printReads := NewGATKPrintReads(pr, "print_reads", sampleType, appsDir, refDir)
 		printReads.In("realbam").Connect(realignIndels.Out("realbam" + sampleType))
 		printReads.In("recaltable").Connect(reCalibrate.Out("recaltable"))
 		mainWfSink.Connect(printReads.Out("recalbam"))
@@ -304,7 +304,7 @@ type GATKRecalibrate struct {
 	*sp.SciProcess
 }
 
-func NewGATKRecalibrate(pr *sp.PipelineRunner, procName string, sampletype string, appsdir string, refDir string, tmpDir string) *GATKRecalibrate {
+func NewGATKRecalibrate(pr *sp.PipelineRunner, procName string, sampleType string, appsDir string, refDir string, tmpDir string) *GATKRecalibrate {
 	inner := pr.NewFromShell(procName+"_"+sampleType,
 		`java -Xmx3g -Djava.io.tmpdir=`+tmpDir+` -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T BaseRecalibrator \
 				-R `+refDir+`/human_g1k_v37_decoy.fasta \
