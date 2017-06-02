@@ -14,29 +14,15 @@ const (
 	tmpDir      = "tmp"
 	dataDir     = "dat"
 	appsDir     = dataDir + "/apps"
-	refDir      = appsDir + "/pipeline_test/ref"
 	origDataDir = appsDir + "/pipeline_test/data"
+	refDir      = appsDir + "/pipeline_test/ref"
+	refFasta    = refDir + "/human_g1k_v37_decoy.fasta"
+	refIndex    = refDir + "/human_g1k_v37_decoy.fasta.fai"
 )
 
 func main() {
 	// Output slightly more info than default
 	sp.InitLogInfo()
-
-	// ----------------------------------------------------------------------------
-	// Some general stuff used in multiple places below
-	// ----------------------------------------------------------------------------
-
-	indexes := map[string][]string{
-		"normal": []string{"1", "2", "4", "7", "8"},
-		"tumor":  []string{"1", "2", "3", "5", "6", "7"},
-	}
-	indexQueue := map[string]*ParamQueue{}
-
-	sampleTypes := map[string][]string{
-		"normal": []string{"normal", "normal", "normal", "normal", "normal"},
-		"tumor":  []string{"tumor", "tumor", "tumor", "tumor", "tumor", "tumor"},
-	}
-	stQueue := map[string]*ParamQueue{}
 
 	// ----------------------------------------------------------------------------
 	// Data Download part of the workflow
@@ -50,71 +36,74 @@ func main() {
 	// ----------------------------------------------------------------------------
 
 	pr := sp.NewPipelineRunner()
-
-	refFasta := refDir + "/human_g1k_v37_decoy.fasta"
-	refIndex := refDir + "/human_g1k_v37_decoy.fasta.fai"
-
-	readsPaths1 := map[string][]string{}
-	readsPaths2 := map[string][]string{}
-
-	// Init some process "holders"
-	mergeBams := map[string]*sp.SciProcess{}
-	markDupes := map[string]*sp.SciProcess{}
-
-	readsFQ1 := map[string]*sp.IPQueue{}
-	readsFQ2 := map[string]*sp.IPQueue{}
-	streamToSubstream := map[string]*spcomp.StreamToSubStream{}
-
-	// Init the main sink
 	mainWfSink := sp.NewSink()
+
+	// Some parameter stuff used below
+
+	indexes := map[string][]string{
+		"normal": []string{"1", "2", "4", "7", "8"},
+		"tumor":  []string{"1", "2", "3", "5", "6", "7"},
+	}
+
+	sampleTypes := map[string][]string{
+		"normal": []string{"normal", "normal", "normal", "normal", "normal"},
+		"tumor":  []string{"tumor", "tumor", "tumor", "tumor", "tumor", "tumor"},
+	}
+
+	// Init a process "holder" for the final process in this part, as we need
+	// to access the normal and tumor verions specifically
+	markDupesProcs := map[string]*sp.SciProcess{}
 
 	for i, smpltype := range []string{"normal", "tumor"} {
 
 		si := strconv.Itoa(i)
 
-		indexQueue[smpltype] = NewParamQueue(indexes[smpltype]...)
-		pr.AddProcess(indexQueue[smpltype])
+		indexQueue := NewParamQueue(indexes[smpltype]...)
+		pr.AddProcess(indexQueue)
 
-		stQueue[smpltype] = NewParamQueue(sampleTypes[smpltype]...)
-		pr.AddProcess(stQueue[smpltype])
+		stQueue := NewParamQueue(sampleTypes[smpltype]...)
+		pr.AddProcess(stQueue)
 
+		readsPaths1 := []string{}
+		readsPaths2 := []string{}
 		for _, idx := range indexes[smpltype] {
-			readsPaths1[smpltype] = append(readsPaths1[smpltype], origDataDir+"/tiny_"+smpltype+"_L00"+idx+"_R1.fastq.gz")
-			readsPaths2[smpltype] = append(readsPaths2[smpltype], origDataDir+"/tiny_"+smpltype+"_L00"+idx+"_R2.fastq.gz")
+			readsPaths1 = append(readsPaths1, origDataDir+"/tiny_"+smpltype+"_L00"+idx+"_R1.fastq.gz")
+			readsPaths2 = append(readsPaths2, origDataDir+"/tiny_"+smpltype+"_L00"+idx+"_R2.fastq.gz")
 		}
 
 		// --------------------------------------------------------------------------------
 		// Align samples
 		// --------------------------------------------------------------------------------
-		readsFQ1[smpltype] = sp.NewIPQueue(readsPaths1[smpltype]...)
-		readsFQ2[smpltype] = sp.NewIPQueue(readsPaths2[smpltype]...)
-		pr.AddProcess(readsFQ1[smpltype])
-		pr.AddProcess(readsFQ2[smpltype])
+		readsFQ1 := sp.NewIPQueue(readsPaths1...)
+		pr.AddProcess(readsFQ1)
+
+		readsFQ2 := sp.NewIPQueue(readsPaths2...)
+		pr.AddProcess(readsFQ2)
 
 		alignSamples := NewBwaAlign("align_samples", smpltype, refFasta, refIndex)
-		alignSamples.InReads1().Connect(readsFQ1[smpltype].Out)
-		alignSamples.InReads2().Connect(readsFQ2[smpltype].Out)
-		alignSamples.PPIndexNo().Connect(indexQueue[smpltype].Out)
-		alignSamples.PPSampleType().Connect(stQueue[smpltype].Out)
+		alignSamples.InReads1().Connect(readsFQ1.Out)
+		alignSamples.InReads2().Connect(readsFQ2.Out)
+		alignSamples.PPIndexNo().Connect(indexQueue.Out)
+		alignSamples.PPSampleType().Connect(stQueue.Out)
 		pr.AddProcess(alignSamples)
 
 		// --------------------------------------------------------------------------------
 		// Merge BAMs
 		// --------------------------------------------------------------------------------
 
-		streamToSubstream[smpltype] = spcomp.NewStreamToSubStream()
-		streamToSubstream[smpltype].In.Connect(alignSamples.OutBam())
-		pr.AddProcess(streamToSubstream[smpltype])
+		streamToSubstream := spcomp.NewStreamToSubStream()
+		streamToSubstream.In.Connect(alignSamples.OutBam())
+		pr.AddProcess(streamToSubstream)
 
-		mergeBams[smpltype] = pr.NewFromShell("merge_bams_"+smpltype, "samtools merge -f {o:mergedbam} {i:bams:r: }")
-		mergeBams[smpltype].In("bams").Connect(streamToSubstream[smpltype].OutSubStream)
-		mergeBams[smpltype].SetPathStatic("mergedbam", tmpDir+"/"+smpltype+".bam")
+		mergeBams := pr.NewFromShell("merge_bams_"+smpltype, "samtools merge -f {o:mergedbam} {i:bams:r: }")
+		mergeBams.In("bams").Connect(streamToSubstream.OutSubStream)
+		mergeBams.SetPathStatic("mergedbam", tmpDir+"/"+smpltype+".bam")
 
 		// --------------------------------------------------------------------------------
 		// Mark Duplicates
 		// --------------------------------------------------------------------------------
 
-		markDupes[smpltype] = pr.NewFromShell("mark_dupes_"+smpltype,
+		markDupes := pr.NewFromShell("mark_dupes_"+smpltype,
 			`java -Xmx15g -jar `+appsDir+`/picard-tools-1.118/MarkDuplicates.jar \
 				INPUT={i:bam} \
 				METRICS_FILE=`+tmpDir+`/`+smpltype+`_`+si+`.md.bam \
@@ -124,21 +113,15 @@ func main() {
 				CREATE_INDEX=TRUE \
 				OUTPUT={o:bam}; \
 				mv `+tmpDir+`/`+smpltype+`_`+si+`.md{.bam.tmp,}.bai;`)
-		markDupes[smpltype].SetPathStatic("bam", tmpDir+"/"+smpltype+"_"+si+".md.bam")
-		markDupes[smpltype].In("bam").Connect(mergeBams[smpltype].Out("mergedbam"))
+		markDupes.SetPathStatic("bam", tmpDir+"/"+smpltype+"_"+si+".md.bam")
+		markDupes.In("bam").Connect(mergeBams.Out("mergedbam"))
+
+		markDupesProcs[smpltype] = markDupes
 	}
 
 	// --------------------------------------------------------------------------------
 	// Re-align Reads - Create Targets
 	// --------------------------------------------------------------------------------
-
-	markDupesNormalFanOut := spcomp.NewFanOut()
-	markDupesNormalFanOut.InFile.Connect(markDupes["normal"].Out("bam"))
-	pr.AddProcess(markDupesNormalFanOut)
-
-	markDupesTumorFanOut := spcomp.NewFanOut()
-	markDupesTumorFanOut.InFile.Connect(markDupes["tumor"].Out("bam"))
-	pr.AddProcess(markDupesTumorFanOut)
 
 	realignCreateTargets := pr.NewFromShell("realign_create_targets",
 		`java -Xmx3g -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T RealignerTargetCreator  \
@@ -151,8 +134,8 @@ func main() {
 				-XL hs37d5 \
 				-XL NC_007605 \
 				-o {o:intervals}`)
-	realignCreateTargets.In("bamnormal").Connect(markDupesNormalFanOut.Out("create_targets"))
-	realignCreateTargets.In("bamtumor").Connect(markDupesTumorFanOut.Out("create_targets"))
+	realignCreateTargets.In("bamnormal").Connect(markDupesProcs["normal"].Out("bam"))
+	realignCreateTargets.In("bamtumor").Connect(markDupesProcs["tumor"].Out("bam"))
 	realignCreateTargets.SetPathStatic("intervals", tmpDir+"/tiny.intervals")
 
 	// --------------------------------------------------------------------------------
@@ -175,8 +158,8 @@ func main() {
 			mv $realn.bai ${realn%.bam.tmp}.bai;
 			mv $realt.bai ${realt%.bam.tmp}.bai;`)
 	realignIndels.In("intervals").Connect(realignCreateTargets.Out("intervals"))
-	realignIndels.In("bamnormal").Connect(markDupesNormalFanOut.Out("realign_indels"))
-	realignIndels.In("bamtumor").Connect(markDupesTumorFanOut.Out("realign_indels"))
+	realignIndels.In("bamnormal").Connect(markDupesProcs["normal"].Out("bam"))
+	realignIndels.In("bamtumor").Connect(markDupesProcs["tumor"].Out("bam"))
 	realignIndels.SetPathCustom("realbamnormal", func(t *sp.SciTask) string {
 		path := t.InTargets["bamnormal"].GetPath()
 		path = strings.Replace(path, ".bam", ".real.bam", -1)
@@ -194,18 +177,8 @@ func main() {
 	// Re-calibrate reads
 	// --------------------------------------------------------------------------------
 
-	realBamFanOut := map[string]*spcomp.FanOut{}
-
-	reCalibrate := map[string]*sp.SciProcess{}
-	printReads := map[string]*sp.SciProcess{}
-
 	for _, smpltype := range []string{"normal", "tumor"} {
-
-		realBamFanOut[smpltype] = spcomp.NewFanOut()
-		realBamFanOut[smpltype].InFile.Connect(realignIndels.Out("realbam" + smpltype))
-		pr.AddProcess(realBamFanOut[smpltype])
-
-		reCalibrate[smpltype] = pr.NewFromShell("recalibrate_"+smpltype,
+		reCalibrate := pr.NewFromShell("recalibrate_"+smpltype,
 			`java -Xmx3g -Djava.io.tmpdir=`+tmpDir+` -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T BaseRecalibrator \
 				-R `+refDir+`/human_g1k_v37_decoy.fasta \
 				-I {i:realbam} \
@@ -217,10 +190,10 @@ func main() {
 				-XL NC_007605 \
 				-l INFO \
 				-o {o:recaltable}`)
-		reCalibrate[smpltype].In("realbam").Connect(realBamFanOut[smpltype].Out("recal"))
-		reCalibrate[smpltype].SetPathStatic("recaltable", tmpDir+"/"+smpltype+".recal.table")
+		reCalibrate.In("realbam").Connect(realignIndels.Out("realbam" + smpltype))
+		reCalibrate.SetPathStatic("recaltable", tmpDir+"/"+smpltype+".recal.table")
 
-		printReads[smpltype] = pr.NewFromShell("print_reads_"+smpltype,
+		printReads := pr.NewFromShell("print_reads_"+smpltype,
 			`java -Xmx3g -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T PrintReads \
 				-R `+refDir+`/human_g1k_v37_decoy.fasta \
 				-nct 4 \
@@ -231,11 +204,11 @@ func main() {
 				-o {o:recalbam};
 				fname={o:recalbam};
 				mv $fname.bai ${fname%.bam.tmp}.bai;`)
-		printReads[smpltype].In("realbam").Connect(realBamFanOut[smpltype].Out("printreads"))
-		printReads[smpltype].In("recaltable").Connect(reCalibrate[smpltype].Out("recaltable"))
-		printReads[smpltype].SetPathStatic("recalbam", smpltype+".recal.bam")
+		printReads.In("realbam").Connect(realignIndels.Out("realbam" + smpltype))
+		printReads.In("recaltable").Connect(reCalibrate.Out("recaltable"))
+		printReads.SetPathStatic("recalbam", smpltype+".recal.bam")
 
-		mainWfSink.Connect(printReads[smpltype].Out("recalbam"))
+		mainWfSink.Connect(printReads.Out("recalbam"))
 	}
 
 	pr.AddProcess(mainWfSink)
