@@ -58,7 +58,6 @@ func main() {
 	readsPaths2 := map[string][]string{}
 
 	// Init some process "holders"
-	alignSamples := map[string]*sp.SciProcess{}
 	mergeBams := map[string]*sp.SciProcess{}
 	markDupes := map[string]*sp.SciProcess{}
 
@@ -92,24 +91,19 @@ func main() {
 		pr.AddProcess(readsFQ1[smpltype])
 		pr.AddProcess(readsFQ2[smpltype])
 
-		alignSamples[smpltype] = pr.NewFromShell("align_samples_"+smpltype, "bwa mem -R \"@RG\tID:{p:smpltyp}_{p:indexno}\tSM:{p:smpltyp}\tLB:{p:smpltyp}\tPL:illumina\" -B 3 -t 4 -M "+refFasta+" {i:reads_1} {i:reads_2}"+
-			"| samtools view -bS -t "+refIndex+" - "+
-			"| samtools sort - > {o:bam}")
-		alignSamples[smpltype].In("reads_1").Connect(readsFQ1[smpltype].Out)
-		alignSamples[smpltype].In("reads_2").Connect(readsFQ2[smpltype].Out)
-		alignSamples[smpltype].PP("indexno").Connect(indexQueue[smpltype].Out)
-		alignSamples[smpltype].PP("smpltyp").Connect(stQueue[smpltype].Out)
-		alignSamples[smpltype].SetPathCustom("bam", func(t *sp.SciTask) string {
-			outPath := tmpDir + "/" + t.Params["smpltyp"] + "_" + t.Params["indexno"] + ".bam"
-			return outPath
-		})
+		alignSamples := NewBwaAlign("align_samples", smpltype, refFasta, refIndex)
+		alignSamples.InReads1().Connect(readsFQ1[smpltype].Out)
+		alignSamples.InReads2().Connect(readsFQ2[smpltype].Out)
+		alignSamples.PPIndexNo().Connect(indexQueue[smpltype].Out)
+		alignSamples.PPSampleType().Connect(stQueue[smpltype].Out)
+		pr.AddProcess(alignSamples)
 
 		// --------------------------------------------------------------------------------
 		// Merge BAMs
 		// --------------------------------------------------------------------------------
 
 		streamToSubstream[smpltype] = spcomp.NewStreamToSubStream()
-		streamToSubstream[smpltype].In.Connect(alignSamples[smpltype].Out("bam"))
+		streamToSubstream[smpltype].In.Connect(alignSamples.OutBam())
 		pr.AddProcess(streamToSubstream[smpltype])
 
 		mergeBams[smpltype] = pr.NewFromShell("merge_bams_"+smpltype, "samtools merge -f {o:mergedbam} {i:bams:r: }")
@@ -247,6 +241,31 @@ func main() {
 	pr.AddProcess(mainWfSink)
 	pr.Run()
 }
+
+// ----------------------------------------------------------------------------
+// Components
+// ----------------------------------------------------------------------------
+
+type BwaAlign struct {
+	*sp.SciProcess
+}
+
+func NewBwaAlign(procIdPrefix string, sampleType string, refFasta string, refIndex string) *BwaAlign {
+	innerBwaAlign := sp.NewFromShell(procIdPrefix+"_"+sampleType, "bwa mem -R \"@RG\tID:{p:smpltyp}_{p:indexno}\tSM:{p:smpltyp}\tLB:{p:smpltyp}\tPL:illumina\" -B 3 -t 4 -M "+refFasta+" {i:reads_1} {i:reads_2}"+
+		"| samtools view -bS -t "+refIndex+" - "+
+		"| samtools sort - > {o:bam}")
+	innerBwaAlign.SetPathCustom("bam", func(t *sp.SciTask) string {
+		outPath := tmpDir + "/" + t.Params["smpltyp"] + "_" + t.Params["indexno"] + ".bam"
+		return outPath
+	})
+	return &BwaAlign{innerBwaAlign}
+}
+
+func (p *BwaAlign) PPIndexNo() *sp.ParamPort    { return p.PP("indexno") }
+func (p *BwaAlign) PPSampleType() *sp.ParamPort { return p.PP("smpltyp") }
+func (p *BwaAlign) InReads1() *sp.FilePort      { return p.In("reads_1") }
+func (p *BwaAlign) InReads2() *sp.FilePort      { return p.In("reads_2") }
+func (p *BwaAlign) OutBam() *sp.FilePort        { return p.Out("bam") }
 
 // ----------------------------------------------------------------------------
 // Sub-workflows
