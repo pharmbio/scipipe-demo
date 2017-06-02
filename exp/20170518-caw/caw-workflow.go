@@ -59,10 +59,10 @@ func main() {
 	for i, sampleType := range sampleTypes {
 		si := strconv.Itoa(i)
 
-		indexQueue := NewParamQueue(indexes[sampleType]...)
+		indexQueue := spcomp.NewStringGenerator(indexes[sampleType]...)
 		pr.AddProcess(indexQueue)
 
-		stQueue := NewParamQueue(sampleTypeLists[sampleType]...)
+		stQueue := spcomp.NewStringGenerator(sampleTypeLists[sampleType]...)
 		pr.AddProcess(stQueue)
 
 		readsPaths1 := []string{}
@@ -217,31 +217,6 @@ func main() {
 }
 
 // ----------------------------------------------------------------------------
-// Components
-// ----------------------------------------------------------------------------
-
-type BwaAlign struct {
-	*sp.SciProcess
-}
-
-func NewBwaAlign(procIdPrefix string, sampleType string, refFasta string, refIndex string) *BwaAlign {
-	innerBwaAlign := sp.NewFromShell(procIdPrefix+"_"+sampleType, "bwa mem -R \"@RG\tID:{p:smpltyp}_{p:indexno}\tSM:{p:smpltyp}\tLB:{p:smpltyp}\tPL:illumina\" -B 3 -t 4 -M "+refFasta+" {i:reads_1} {i:reads_2}"+
-		"| samtools view -bS -t "+refIndex+" - "+
-		"| samtools sort - > {o:bam}")
-	innerBwaAlign.SetPathCustom("bam", func(t *sp.SciTask) string {
-		outPath := tmpDir + "/" + t.Params["smpltyp"] + "_" + t.Params["indexno"] + ".bam"
-		return outPath
-	})
-	return &BwaAlign{innerBwaAlign}
-}
-
-func (p *BwaAlign) PPIndexNo() *sp.ParamPort    { return p.PP("indexno") }
-func (p *BwaAlign) PPSampleType() *sp.ParamPort { return p.PP("smpltyp") }
-func (p *BwaAlign) InReads1() *sp.FilePort      { return p.In("reads_1") }
-func (p *BwaAlign) InReads2() *sp.FilePort      { return p.In("reads_2") }
-func (p *BwaAlign) OutBam() *sp.FilePort        { return p.Out("bam") }
-
-// ----------------------------------------------------------------------------
 // Sub-workflows
 // ----------------------------------------------------------------------------
 
@@ -267,73 +242,26 @@ func NewDownloadWorkflow(dataDir string) *DownloadWorkflow {
 }
 
 // ----------------------------------------------------------------------------
-// Helper processes
+// Component library
 // ----------------------------------------------------------------------------
 
-type CombinationCreator struct {
+type BwaAlign struct {
+	*sp.SciProcess
 }
 
-func NewCombinationCreator(paramVals map[string][]string) *CombinationCreator {
-	for _, _ = range paramVals {
-
-	}
-	return &CombinationCreator{}
+func NewBwaAlign(procIdPrefix string, sampleType string, refFasta string, refIndex string) *BwaAlign {
+	innerBwaAlign := sp.NewFromShell(procIdPrefix+"_"+sampleType, "bwa mem -R \"@RG\tID:{p:smpltyp}_{p:indexno}\tSM:{p:smpltyp}\tLB:{p:smpltyp}\tPL:illumina\" -B 3 -t 4 -M "+refFasta+" {i:reads_1} {i:reads_2}"+
+		"| samtools view -bS -t "+refIndex+" - "+
+		"| samtools sort - > {o:bam}")
+	innerBwaAlign.SetPathCustom("bam", func(t *sp.SciTask) string {
+		outPath := tmpDir + "/" + t.Params["smpltyp"] + "_" + t.Params["indexno"] + ".bam"
+		return outPath
+	})
+	return &BwaAlign{innerBwaAlign}
 }
 
-// ----------------------------------------------------------------------------
-
-type ParamQueue struct {
-	sp.Process
-	Out    *sp.ParamPort
-	params []string
-}
-
-func NewParamQueue(params ...string) *ParamQueue {
-	return &ParamQueue{
-		Out:    sp.NewParamPort(),
-		params: params,
-	}
-}
-
-func (p *ParamQueue) Run() {
-	defer p.Out.Close()
-	for _, param := range p.params {
-		p.Out.Chan <- param
-	}
-}
-
-func (p *ParamQueue) IsConnected() bool {
-	return p.Out.IsConnected()
-}
-
-// ----------------------------------------------------------------------------
-
-type FileMultiplicator struct {
-	sp.Process
-	In                   *sp.FilePort
-	Out                  *sp.FilePort
-	multiplicationFactor int
-}
-
-func NewFileMultiplicator(multiplicationFactor int) *FileMultiplicator {
-	return &FileMultiplicator{
-		In:                   sp.NewFilePort(),
-		Out:                  sp.NewFilePort(),
-		multiplicationFactor: multiplicationFactor,
-	}
-}
-
-func (p *FileMultiplicator) Run() {
-	defer p.Out.Close()
-
-	for inFile := range p.In.Chan {
-		path := inFile.GetPath()
-		for i := 0; i < p.multiplicationFactor; i++ {
-			p.Out.Chan <- sp.NewInformationPacket(path)
-		}
-	}
-}
-
-func (p *FileMultiplicator) IsConnected() bool {
-	return p.In.IsConnected() && p.Out.IsConnected()
-}
+func (p *BwaAlign) PPIndexNo() *sp.ParamPort    { return p.PP("indexno") }
+func (p *BwaAlign) PPSampleType() *sp.ParamPort { return p.PP("smpltyp") }
+func (p *BwaAlign) InReads1() *sp.FilePort      { return p.In("reads_1") }
+func (p *BwaAlign) InReads2() *sp.FilePort      { return p.In("reads_2") }
+func (p *BwaAlign) OutBam() *sp.FilePort        { return p.Out("bam") }
