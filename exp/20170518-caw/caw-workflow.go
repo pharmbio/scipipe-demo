@@ -74,6 +74,7 @@ func main() {
 		}
 
 		// Align samples
+
 		readsFQ1 := sp.NewIPQueue(readsPaths1...)
 		pr.AddProcess(readsFQ1)
 
@@ -87,6 +88,7 @@ func main() {
 		alignSamples.PPSampleType().Connect(stQueue.Out)
 
 		// Merge BAMs
+
 		streamToSubstream := spcomp.NewStreamToSubStream()
 		streamToSubstream.In.Connect(alignSamples.OutBam())
 		pr.AddProcess(streamToSubstream)
@@ -95,6 +97,7 @@ func main() {
 		mergeBams.InBams().Connect(streamToSubstream.OutSubStream)
 
 		// Mark Duplicates
+
 		markDupes := NewGATKMarkDuplicates(pr, "mark_duplicates", sampleType, si, appsDir, tmpDir)
 		markDupes.InBam().Connect(mergeBams.OutMergedBam())
 
@@ -102,45 +105,22 @@ func main() {
 	}
 
 	// Re-align Reads - Create Targets
+
 	realignCreateTargets := NewGATKRealignCreateTargets(pr, "realign_create_targets", appsDir, tmpDir)
 	realignCreateTargets.In("bamnormal").Connect(markDupesProcs["normal"].OutBam())
 	realignCreateTargets.In("bamtumor").Connect(markDupesProcs["tumor"].OutBam())
 
 	// Re-align Reads - Re-align Indels
-	realignIndels := pr.NewFromShell("realign_indels",
-		`java -Xmx3g -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T IndelRealigner \
-			-I {i:bamnormal} \
-			-I {i:bamtumor} \
-			-R `+refDir+`/human_g1k_v37_decoy.fasta \
-			-targetIntervals {i:intervals} \
-			-known `+refDir+`/1000G_phase1.indels.b37.vcf \
-			-known `+refDir+`/Mills_and_1000G_gold_standard.indels.b37.vcf \
-			-XL hs37d5 \
-			-XL NC_007605 \
-			-nWayOut '.real.bam.tmp' # {o:realbamnormal} {o:realbamtumor};
-			realn={o:realbamnormal};
-			realt={o:realbamtumor};
-			mv $realn.bai ${realn%.bam.tmp}.bai;
-			mv $realt.bai ${realt%.bam.tmp}.bai;`)
-	realignIndels.In("intervals").Connect(realignCreateTargets.OutIntervals())
-	realignIndels.In("bamnormal").Connect(markDupesProcs["normal"].OutBam())
-	realignIndels.In("bamtumor").Connect(markDupesProcs["tumor"].OutBam())
-	realignIndels.SetPathCustom("realbamnormal", func(t *sp.SciTask) string {
-		path := t.InTargets["bamnormal"].GetPath()
-		path = strings.Replace(path, ".bam", ".real.bam", -1)
-		path = strings.Replace(path, tmpDir+"/", "", -1)
-		return path
-	})
-	realignIndels.SetPathCustom("realbamtumor", func(t *sp.SciTask) string {
-		path := t.InTargets["bamtumor"].GetPath()
-		path = strings.Replace(path, ".bam", ".real.bam", -1)
-		path = strings.Replace(path, tmpDir+"/", "", -1)
-		return path
-	})
+
+	realignIndels := NewGATKRealignIndels(pr, "realign_indels", appsDir, refDir, tmpDir)
+	realignIndels.InIntervals().Connect(realignCreateTargets.OutIntervals())
+	realignIndels.InBamNormal().Connect(markDupesProcs["normal"].OutBam())
+	realignIndels.InBamTumor().Connect(markDupesProcs["tumor"].OutBam())
 
 	for _, sampleType := range sampleTypes {
 
 		// Re-calibrate reads
+
 		reCalibrate := pr.NewFromShell("recalibrate_"+sampleType,
 			`java -Xmx3g -Djava.io.tmpdir=`+tmpDir+` -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T BaseRecalibrator \
 				-R `+refDir+`/human_g1k_v37_decoy.fasta \
@@ -157,6 +137,7 @@ func main() {
 		reCalibrate.SetPathStatic("recaltable", tmpDir+"/"+sampleType+".recal.table")
 
 		// Print reads
+
 		printReads := pr.NewFromShell("print_reads_"+sampleType,
 			`java -Xmx3g -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T PrintReads \
 				-R `+refDir+`/human_g1k_v37_decoy.fasta \
@@ -179,9 +160,9 @@ func main() {
 	pr.Run()
 }
 
-// ----------------------------------------------------------------------------
+// ============================================================================
 // Sub-workflows
-// ----------------------------------------------------------------------------
+// ============================================================================
 
 type DownloadWorkflow struct {
 	*sp.Pipeline
@@ -303,3 +284,48 @@ func NewGATKRealignCreateTargets(pr *sp.PipelineRunner, procName string, appsdir
 func (p *GATKRealignCreateTargets) InBamNormal() *sp.FilePort  { return p.In("bamnormal") }
 func (p *GATKRealignCreateTargets) InBamTumor() *sp.FilePort   { return p.In("bamtumor") }
 func (p *GATKRealignCreateTargets) OutIntervals() *sp.FilePort { return p.Out("intervals") }
+
+// ----------------------------------------------------------------------------
+// GATK Realign Indels
+// ----------------------------------------------------------------------------
+
+type GATKRealignIndels struct {
+	*sp.SciProcess
+}
+
+func NewGATKRealignIndels(pr *sp.PipelineRunner, procName string, appsdir string, refDir string, tmpDir string) *GATKRealignIndels {
+	inner := pr.NewFromShell(procName,
+		`java -Xmx3g -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T IndelRealigner \
+			-I {i:bamnormal} \
+			-I {i:bamtumor} \
+			-R `+refDir+`/human_g1k_v37_decoy.fasta \
+			-targetIntervals {i:intervals} \
+			-known `+refDir+`/1000G_phase1.indels.b37.vcf \
+			-known `+refDir+`/Mills_and_1000G_gold_standard.indels.b37.vcf \
+			-XL hs37d5 \
+			-XL NC_007605 \
+			-nWayOut '.real.bam.tmp' # {o:realbamnormal} {o:realbamtumor};
+			realn={o:realbamnormal};
+			realt={o:realbamtumor};
+			mv $realn.bai ${realn%.bam.tmp}.bai;
+			mv $realt.bai ${realt%.bam.tmp}.bai;`)
+	inner.SetPathCustom("realbamnormal", func(t *sp.SciTask) string {
+		path := t.InTargets["bamnormal"].GetPath()
+		path = strings.Replace(path, ".bam", ".real.bam", -1)
+		path = strings.Replace(path, tmpDir+"/", "", -1)
+		return path
+	})
+	inner.SetPathCustom("realbamtumor", func(t *sp.SciTask) string {
+		path := t.InTargets["bamtumor"].GetPath()
+		path = strings.Replace(path, ".bam", ".real.bam", -1)
+		path = strings.Replace(path, tmpDir+"/", "", -1)
+		return path
+	})
+	return &GATKRealignIndels{inner}
+}
+
+func (p *GATKRealignIndels) InBamNormal() *sp.FilePort      { return p.In("bamnormal") }
+func (p *GATKRealignIndels) InBamTumor() *sp.FilePort       { return p.In("bamtumor") }
+func (p *GATKRealignIndels) InIntervals() *sp.FilePort      { return p.In("intervals") }
+func (p *GATKRealignIndels) OutRealBamNormal() *sp.FilePort { return p.In("realbamnormal") }
+func (p *GATKRealignIndels) OutRealBamTumor() *sp.FilePort  { return p.In("realbamtumor") }
