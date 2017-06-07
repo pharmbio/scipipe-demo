@@ -70,7 +70,7 @@ func main() {
 		alignSamples := NewBwaAlign(pr, "align_samples", sampleType, refFasta, refIndex)
 		alignSamples.InReads1().Connect(readsFQ1.Out)
 		alignSamples.InReads2().Connect(readsFQ2.Out)
-		alignSamples.PPIndexNo().Connect(indexGen.Out)
+		alignSamples.ParamIndexNo().Connect(indexGen.Out)
 
 		// Merge BAMs
 		streamToSubstream := spcomp.NewStreamToSubStream()
@@ -166,10 +166,10 @@ func NewBwaAlign(pr *PipelineRunner, procName string, sampleType string, refFast
 	return &BwaAlign{inner}
 }
 
-func (p *BwaAlign) PPIndexNo() *ParamPort { return p.PP("indexno") }
-func (p *BwaAlign) InReads1() *FilePort   { return p.In("reads_1") }
-func (p *BwaAlign) InReads2() *FilePort   { return p.In("reads_2") }
-func (p *BwaAlign) OutBam() *FilePort     { return p.Out("bam") }
+func (p *BwaAlign) ParamIndexNo() *ParamPort { return p.ParamPort("indexno") }
+func (p *BwaAlign) InReads1() *FilePort      { return p.In("reads_1") }
+func (p *BwaAlign) InReads2() *FilePort      { return p.In("reads_2") }
+func (p *BwaAlign) OutBam() *FilePort        { return p.Out("bam") }
 
 // ----------------------------------------------------------------------------
 // Samtools Merge
