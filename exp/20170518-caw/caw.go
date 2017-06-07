@@ -37,34 +37,27 @@ func main() {
 
 	// Some parameter stuff used below
 	sampleTypes := []string{"normal", "tumor"}
-	indexes := map[string][]string{
+	readsIndexes := map[string][]string{
 		"normal": {"1", "2", "4", "7", "8"},
 		"tumor":  {"1", "2", "3", "5", "6", "7"},
-	}
-	sampleTypeLists := map[string][]string{
-		"normal": {"normal", "normal", "normal", "normal", "normal"},
-		"tumor":  {"tumor", "tumor", "tumor", "tumor", "tumor", "tumor"},
 	}
 
 	// Init a process "holder" for the final process in this part, as we need
 	// to access the normal and tumor verions specifically
 	markDupesProcs := map[string]*GATKMarkDuplicates{}
 
-	for i, sampleType := range sampleTypes {
-		si := strconv.Itoa(i)
+	for sampleIdxStr, sampleType := range sampleTypes {
+		sampleIdx := strconv.Itoa(sampleIdxStr)
 
 		// Some parameter book-keeping
-		indexQueue := spcomp.NewStringGenerator(indexes[sampleType]...)
+		indexQueue := spcomp.NewStringGenerator(readsIndexes[sampleType]...)
 		pr.AddProcess(indexQueue)
-
-		stQueue := spcomp.NewStringGenerator(sampleTypeLists[sampleType]...)
-		pr.AddProcess(stQueue)
 
 		readsPaths1 := []string{}
 		readsPaths2 := []string{}
-		for _, idx := range indexes[sampleType] {
-			readsPaths1 = append(readsPaths1, origDataDir+"/tiny_"+sampleType+"_L00"+idx+"_R1.fastq.gz")
-			readsPaths2 = append(readsPaths2, origDataDir+"/tiny_"+sampleType+"_L00"+idx+"_R2.fastq.gz")
+		for _, readsIdx := range readsIndexes[sampleType] {
+			readsPaths1 = append(readsPaths1, origDataDir+"/tiny_"+sampleType+"_L00"+readsIdx+"_R1.fastq.gz")
+			readsPaths2 = append(readsPaths2, origDataDir+"/tiny_"+sampleType+"_L00"+readsIdx+"_R2.fastq.gz")
 		}
 
 		// Align samples
@@ -78,7 +71,6 @@ func main() {
 		alignSamples.InReads1().Connect(readsFQ1.Out)
 		alignSamples.InReads2().Connect(readsFQ2.Out)
 		alignSamples.PPIndexNo().Connect(indexQueue.Out)
-		alignSamples.PPSampleType().Connect(stQueue.Out)
 
 		// Merge BAMs
 		streamToSubstream := spcomp.NewStreamToSubStream()
@@ -89,7 +81,7 @@ func main() {
 		mergeBams.InBams().Connect(streamToSubstream.OutSubStream)
 
 		// Mark Duplicates
-		markDupes := NewGATKMarkDuplicates(pr, "mark_duplicates", sampleType, si, appsDir, tmpDir)
+		markDupes := NewGATKMarkDuplicates(pr, "mark_duplicates", sampleType, sampleIdx, appsDir, tmpDir)
 		markDupes.InBam().Connect(mergeBams.OutMergedBam())
 		markDupesProcs[sampleType] = markDupes
 	}
@@ -164,21 +156,20 @@ type BwaAlign struct {
 }
 
 func NewBwaAlign(pr *sp.PipelineRunner, procName string, sampleType string, refFasta string, refIndex string) *BwaAlign {
-	inner := pr.NewFromShell(procName+"_"+sampleType, "bwa mem -R \"@RG\tID:{p:smpltyp}_{p:indexno}\tSM:{p:smpltyp}\tLB:{p:smpltyp}\tPL:illumina\" -B 3 -t 4 -M "+refFasta+" {i:reads_1} {i:reads_2}"+
+	inner := pr.NewFromShell(procName+"_"+sampleType, "bwa mem -R \"@RG\tID:"+sampleType+"_{p:indexno}\tSM:"+sampleType+"\tLB:"+sampleType+"\tPL:illumina\" -B 3 -t 4 -M "+refFasta+" {i:reads_1} {i:reads_2}"+
 		"| samtools view -bS -t "+refIndex+" - "+
 		"| samtools sort - > {o:bam}")
 	inner.SetPathCustom("bam", func(t *sp.SciTask) string {
-		outPath := tmpDir + "/" + t.Params["smpltyp"] + "_" + t.Params["indexno"] + ".bam"
+		outPath := tmpDir + "/" + sampleType + "_" + t.Params["indexno"] + ".bam"
 		return outPath
 	})
 	return &BwaAlign{inner}
 }
 
-func (p *BwaAlign) PPIndexNo() *sp.ParamPort    { return p.PP("indexno") }
-func (p *BwaAlign) PPSampleType() *sp.ParamPort { return p.PP("smpltyp") }
-func (p *BwaAlign) InReads1() *sp.FilePort      { return p.In("reads_1") }
-func (p *BwaAlign) InReads2() *sp.FilePort      { return p.In("reads_2") }
-func (p *BwaAlign) OutBam() *sp.FilePort        { return p.Out("bam") }
+func (p *BwaAlign) PPIndexNo() *sp.ParamPort { return p.PP("indexno") }
+func (p *BwaAlign) InReads1() *sp.FilePort   { return p.In("reads_1") }
+func (p *BwaAlign) InReads2() *sp.FilePort   { return p.In("reads_2") }
+func (p *BwaAlign) OutBam() *sp.FilePort     { return p.Out("bam") }
 
 // ----------------------------------------------------------------------------
 // Samtools Merge
