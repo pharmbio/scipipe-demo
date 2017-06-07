@@ -29,8 +29,6 @@ var (
 
 func main() {
 
-	//InitLogDebug()
-
 	// Run the Data Download part of the workflow
 	downloadDataWorkflow := NewDownloadWorkflow(dataDir)
 	downloadDataWorkflow.Run()
@@ -107,7 +105,7 @@ func main() {
 		wf.ConnectLast(printReads.Out("recalbam"))
 	}
 
-	// Run
+	// Run workflow
 	wf.Run()
 }
 
