@@ -59,15 +59,15 @@ func main() {
 		}
 
 		// Align samples
-		readsFQ1 := NewIPGen(readsPaths1...)
-		pr.AddProcess(readsFQ1)
+		readsGen1 := NewIPGen(readsPaths1...)
+		pr.AddProcess(readsGen1)
 
-		readsFQ2 := NewIPGen(readsPaths2...)
-		pr.AddProcess(readsFQ2)
+		readsGen2 := NewIPGen(readsPaths2...)
+		pr.AddProcess(readsGen2)
 
 		alignSamples := NewBwaAlign(pr, "align_samples", sampleType, refFasta, refIndex)
-		alignSamples.InReads1().Connect(readsFQ1.Out)
-		alignSamples.InReads2().Connect(readsFQ2.Out)
+		alignSamples.InReads1().Connect(readsGen1.Out)
+		alignSamples.InReads2().Connect(readsGen2.Out)
 		alignSamples.ParamIndexNo().Connect(indexGen.Out)
 
 		// Merge BAMs
