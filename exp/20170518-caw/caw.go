@@ -29,6 +29,8 @@ var (
 
 func main() {
 
+	//InitLogDebug()
+
 	// Run the Data Download part of the workflow
 	downloadDataWorkflow := NewDownloadWorkflow(dataDir)
 	downloadDataWorkflow.Run()
@@ -36,10 +38,7 @@ func main() {
 	// ------------------------------------------------
 	// Main workflow starts here
 	// ------------------------------------------------
-
-	// Some technical initialization
-	pr := NewPipelineRunner()
-	mainWfSink := NewSink()
+	wf := NewWorkflow("caw_wf")
 
 	// Init a process "holder" for the final process in this part, as we need
 	// to access the normal and tumor verions specifically
@@ -49,8 +48,8 @@ func main() {
 		sampleIdx := strconv.Itoa(sampleIdxStr)
 
 		// Some parameter book-keeping
-		indexGen := spcomp.NewStringGen(readsIndexes[sampleType]...)
-		pr.AddProcess(indexGen)
+		indexGen := spcomp.NewStringGen("gen_readsidxes", readsIndexes[sampleType]...)
+		wf.Add(indexGen)
 
 		readsPaths1 := []string{}
 		readsPaths2 := []string{}
@@ -60,57 +59,56 @@ func main() {
 		}
 
 		// Align samples
-		readsGen1 := NewIPGen(readsPaths1...)
-		pr.AddProcess(readsGen1)
+		readsGen1 := NewIPGen("gen_readspaths1", readsPaths1...)
+		wf.Add(readsGen1)
 
-		readsGen2 := NewIPGen(readsPaths2...)
-		pr.AddProcess(readsGen2)
+		readsGen2 := NewIPGen("gen_readspaths2", readsPaths2...)
+		wf.Add(readsGen2)
 
-		alignSamples := NewBwaAlign(pr, "align_samples", sampleType, refFasta, refIndex)
+		alignSamples := NewBwaAlign(wf, "align_samples", sampleType, refFasta, refIndex)
 		alignSamples.InReads1().Connect(readsGen1.Out)
 		alignSamples.InReads2().Connect(readsGen2.Out)
 		alignSamples.ParamIndexNo().Connect(indexGen.Out)
 
 		// Merge BAMs
-		streamToSubstream := spcomp.NewStreamToSubStream()
+		streamToSubstream := spcomp.NewStreamToSubStream("alignsamples_str2substr")
 		streamToSubstream.In.Connect(alignSamples.OutBam())
-		pr.AddProcess(streamToSubstream)
+		wf.Add(streamToSubstream)
 
-		mergeBams := NewSamtoolsMerge(pr, "merge_bams", sampleType, tmpDir)
+		mergeBams := NewSamtoolsMerge(wf, "merge_bams", sampleType, tmpDir)
 		mergeBams.InBams().Connect(streamToSubstream.OutSubStream)
 
 		// Mark Duplicates
-		markDupes := NewGATKMarkDuplicates(pr, "mark_duplicates", sampleType, sampleIdx, appsDir, tmpDir)
+		markDupes := NewGATKMarkDuplicates(wf, "mark_duplicates", sampleType, sampleIdx, appsDir, tmpDir)
 		markDupes.InBam().Connect(mergeBams.OutMergedBam())
 		markDupesProcs[sampleType] = markDupes
 	}
 
 	// Re-align Reads - Create Targets
-	realignCreateTargets := NewGATKRealignCreateTargets(pr, "realign_create_targets", appsDir, tmpDir)
+	realignCreateTargets := NewGATKRealignCreateTargets(wf, "realign_create_targets", appsDir, tmpDir)
 	realignCreateTargets.In("bamnormal").Connect(markDupesProcs["normal"].OutBam())
 	realignCreateTargets.In("bamtumor").Connect(markDupesProcs["tumor"].OutBam())
 
 	// Re-align Reads - Re-align Indels
-	realignIndels := NewGATKRealignIndels(pr, "realign_indels", appsDir, refDir, tmpDir)
+	realignIndels := NewGATKRealignIndels(wf, "realign_indels", appsDir, refDir, tmpDir)
 	realignIndels.InIntervals().Connect(realignCreateTargets.OutIntervals())
 	realignIndels.InBamNormal().Connect(markDupesProcs["normal"].OutBam())
 	realignIndels.InBamTumor().Connect(markDupesProcs["tumor"].OutBam())
 
 	for _, sampleType := range sampleTypes {
 		// Re-calibrate reads
-		reCalibrate := NewGATKRecalibrate(pr, "recalibrate", sampleType, appsDir, refDir, tmpDir)
+		reCalibrate := NewGATKRecalibrate(wf, "recalibrate", sampleType, appsDir, refDir, tmpDir)
 		reCalibrate.InRealBam().Connect(realignIndels.Out("realbam" + sampleType))
 
 		// Print reads
-		printReads := NewGATKPrintReads(pr, "print_reads", sampleType, appsDir, refDir)
+		printReads := NewGATKPrintReads(wf, "print_reads", sampleType, appsDir, refDir)
 		printReads.In("realbam").Connect(realignIndels.Out("realbam" + sampleType))
 		printReads.In("recaltable").Connect(reCalibrate.Out("recaltable"))
-		mainWfSink.Connect(printReads.Out("recalbam"))
+		wf.ConnectLast(printReads.Out("recalbam"))
 	}
 
 	// Run
-	pr.AddProcess(mainWfSink)
-	pr.Run()
+	wf.Run()
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -122,22 +120,24 @@ func main() {
 // ----------------------------------------------------------------------------
 
 type DownloadWorkflow struct {
-	*Pipeline
+	*Workflow
 }
 
 func NewDownloadWorkflow(dataDir string) *DownloadWorkflow {
-	wf := &DownloadWorkflow{NewPipeline()}
+	wf := &DownloadWorkflow{NewWorkflow("dldata_wf")}
 
-	wf.NewProc("download_apps", "wget http://uppnex.se/apps.tar.gz -O {o:apps}")
-	wf.GetProc("download_apps").SetPathStatic("apps", dataDir+"/uppnex_apps.tar.gz")
+	dwnld := wf.NewProc("download_apps", "wget http://uppnex.se/apps.tar.gz -O {o:apps}")
+	dwnld.SetPathStatic("apps", dataDir+"/uppnex_apps.tar.gz")
 
-	wf.NewProc("unzip_apps", "zcat {i:targz} > {o:tar}")
-	wf.GetProc("unzip_apps").SetPathReplace("targz", "tar", ".gz", "")
-	wf.Connect("unzip_apps.targz <- download_apps.apps")
+	unzip := wf.NewProc("unzip_apps", "zcat {i:targz} > {o:tar}")
+	unzip.SetPathReplace("targz", "tar", ".gz", "")
+	unzip.In("targz").Connect(dwnld.Out("apps"))
 
-	wf.NewProc("untar_apps", "tar -xvf {i:tar} -C "+dataDir+" # {o:outdir}")
-	wf.GetProc("untar_apps").SetPathStatic("outdir", dataDir+"/apps")
-	wf.Connect("untar_apps.tar <- unzip_apps.tar")
+	untar := wf.NewProc("untar_apps", "tar -xvf {i:tar} -C "+dataDir+" # {o:outdir}")
+	untar.SetPathStatic("outdir", dataDir+"/apps")
+	untar.In("tar").Connect(unzip.Out("tar"))
+
+	wf.ConnectLast(untar.Out("outdir"))
 
 	return wf
 }
@@ -154,15 +154,16 @@ type BwaAlign struct {
 	*SciProcess
 }
 
-func NewBwaAlign(pr *PipelineRunner, procName string, sampleType string, refFasta string, refIndex string) *BwaAlign {
-	inner := pr.NewFromShell(procName+"_"+sampleType, "bwa mem -R \"@RG\tID:"+sampleType+"_{p:indexno}\tSM:"+sampleType+"\tLB:"+sampleType+"\tPL:illumina\" -B 3 -t 4 -M "+refFasta+" {i:reads_1} {i:reads_2}"+
+func NewBwaAlign(wf *Workflow, procName string, sampleType string, refFasta string, refIndex string) *BwaAlign {
+	sampleTyp := sampleType
+	innerProc := wf.NewProc(procName+"_"+sampleType, "bwa mem -R \"@RG\tID:"+sampleType+"_{p:indexno}\tSM:"+sampleType+"\tLB:"+sampleType+"\tPL:illumina\" -B 3 -t 4 -M "+refFasta+" {i:reads_1} {i:reads_2}"+
 		"| samtools view -bS -t "+refIndex+" - "+
 		"| samtools sort - > {o:bam}")
-	inner.SetPathCustom("bam", func(t *SciTask) string {
-		outPath := tmpDir + "/" + sampleType + "_" + t.Params["indexno"] + ".bam"
+	innerProc.SetPathCustom("bam", func(t *SciTask) string {
+		outPath := tmpDir + "/" + sampleTyp + "_" + t.Params["indexno"] + ".bam"
 		return outPath
 	})
-	return &BwaAlign{inner}
+	return &BwaAlign{innerProc}
 }
 
 func (p *BwaAlign) ParamIndexNo() *ParamPort { return p.ParamPort("indexno") }
@@ -178,10 +179,10 @@ type SamtoolsMerge struct {
 	*SciProcess
 }
 
-func NewSamtoolsMerge(pr *PipelineRunner, procName string, sampleType string, tmpDir string) *SamtoolsMerge {
-	inner := pr.NewFromShell(procName+"_"+sampleType, "samtools merge -f {o:mergedbam} {i:bams:r: }")
-	inner.SetPathStatic("mergedbam", tmpDir+"/"+sampleType+".bam")
-	return &SamtoolsMerge{inner}
+func NewSamtoolsMerge(wf *Workflow, procName string, sampleType string, tmpDir string) *SamtoolsMerge {
+	innerProc := wf.NewProc(procName+"_"+sampleType, "samtools merge -f {o:mergedbam} {i:bams:r: }")
+	innerProc.SetPathStatic("mergedbam", tmpDir+"/"+sampleType+".bam")
+	return &SamtoolsMerge{innerProc}
 }
 
 func (p *SamtoolsMerge) InBams() *FilePort       { return p.In("bams") }
@@ -195,8 +196,8 @@ type GATKMarkDuplicates struct {
 	*SciProcess
 }
 
-func NewGATKMarkDuplicates(pr *PipelineRunner, procName string, sampleType string, sampleIndex string, appsdir string, tmpDir string) *GATKMarkDuplicates {
-	inner := pr.NewFromShell("mark_dupes_"+sampleType,
+func NewGATKMarkDuplicates(wf *Workflow, procName string, sampleType string, sampleIndex string, appsdir string, tmpDir string) *GATKMarkDuplicates {
+	innerProc := wf.NewProc("mark_dupes_"+sampleType,
 		`java -Xmx15g -jar `+appsDir+`/picard-tools-1.118/MarkDuplicates.jar \
 				INPUT={i:bam} \
 				METRICS_FILE=`+tmpDir+`/`+sampleType+`_`+sampleIndex+`.md.bam \
@@ -206,8 +207,8 @@ func NewGATKMarkDuplicates(pr *PipelineRunner, procName string, sampleType strin
 				CREATE_INDEX=TRUE \
 				OUTPUT={o:bam}; \
 				mv `+tmpDir+`/`+sampleType+`_`+sampleIndex+`.md{.bam.tmp,}.bai;`)
-	inner.SetPathStatic("bam", tmpDir+"/"+sampleType+"_"+sampleIndex+".md.bam")
-	return &GATKMarkDuplicates{inner}
+	innerProc.SetPathStatic("bam", tmpDir+"/"+sampleType+"_"+sampleIndex+".md.bam")
+	return &GATKMarkDuplicates{innerProc}
 }
 
 func (p *GATKMarkDuplicates) InBam() *FilePort  { return p.In("bam") }
@@ -221,8 +222,8 @@ type GATKRealignCreateTargets struct {
 	*SciProcess
 }
 
-func NewGATKRealignCreateTargets(pr *PipelineRunner, procName string, appsdir string, tmpDir string) *GATKRealignCreateTargets {
-	inner := pr.NewFromShell(procName,
+func NewGATKRealignCreateTargets(wf *Workflow, procName string, appsdir string, tmpDir string) *GATKRealignCreateTargets {
+	innerProc := wf.NewProc(procName,
 		`java -Xmx3g -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T RealignerTargetCreator  \
 				-I {i:bamnormal} \
 				-I {i:bamtumor} \
@@ -233,8 +234,8 @@ func NewGATKRealignCreateTargets(pr *PipelineRunner, procName string, appsdir st
 				-XL hs37d5 \
 				-XL NC_007605 \
 				-o {o:intervals}`)
-	inner.SetPathStatic("intervals", tmpDir+"/tiny.intervals")
-	return &GATKRealignCreateTargets{inner}
+	innerProc.SetPathStatic("intervals", tmpDir+"/tiny.intervals")
+	return &GATKRealignCreateTargets{innerProc}
 }
 
 func (p *GATKRealignCreateTargets) InBamNormal() *FilePort  { return p.In("bamnormal") }
@@ -249,8 +250,8 @@ type GATKRealignIndels struct {
 	*SciProcess
 }
 
-func NewGATKRealignIndels(pr *PipelineRunner, procName string, appsdir string, refDir string, tmpDir string) *GATKRealignIndels {
-	inner := pr.NewFromShell(procName,
+func NewGATKRealignIndels(wf *Workflow, procName string, appsdir string, refDir string, tmpDir string) *GATKRealignIndels {
+	innerProc := wf.NewProc(procName,
 		`java -Xmx3g -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T IndelRealigner \
 			-I {i:bamnormal} \
 			-I {i:bamtumor} \
@@ -265,19 +266,19 @@ func NewGATKRealignIndels(pr *PipelineRunner, procName string, appsdir string, r
 			realt={o:realbamtumor};
 			mv $realn.bai ${realn%.bam.tmp}.bai;
 			mv $realt.bai ${realt%.bam.tmp}.bai;`)
-	inner.SetPathCustom("realbamnormal", func(t *SciTask) string {
+	innerProc.SetPathCustom("realbamnormal", func(t *SciTask) string {
 		path := t.InTargets["bamnormal"].GetPath()
 		path = strings.Replace(path, ".bam", ".real.bam", -1)
 		path = strings.Replace(path, tmpDir+"/", "", -1)
 		return path
 	})
-	inner.SetPathCustom("realbamtumor", func(t *SciTask) string {
+	innerProc.SetPathCustom("realbamtumor", func(t *SciTask) string {
 		path := t.InTargets["bamtumor"].GetPath()
 		path = strings.Replace(path, ".bam", ".real.bam", -1)
 		path = strings.Replace(path, tmpDir+"/", "", -1)
 		return path
 	})
-	return &GATKRealignIndels{inner}
+	return &GATKRealignIndels{innerProc}
 }
 
 func (p *GATKRealignIndels) InBamNormal() *FilePort      { return p.In("bamnormal") }
@@ -294,8 +295,8 @@ type GATKRecalibrate struct {
 	*SciProcess
 }
 
-func NewGATKRecalibrate(pr *PipelineRunner, procName string, sampleType string, appsDir string, refDir string, tmpDir string) *GATKRecalibrate {
-	inner := pr.NewFromShell(procName+"_"+sampleType,
+func NewGATKRecalibrate(wf *Workflow, procName string, sampleType string, appsDir string, refDir string, tmpDir string) *GATKRecalibrate {
+	innerProc := wf.NewProc(procName+"_"+sampleType,
 		`java -Xmx3g -Djava.io.tmpdir=`+tmpDir+` -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T BaseRecalibrator \
 				-R `+refDir+`/human_g1k_v37_decoy.fasta \
 				-I {i:realbam} \
@@ -307,8 +308,8 @@ func NewGATKRecalibrate(pr *PipelineRunner, procName string, sampleType string, 
 				-XL NC_007605 \
 				-l INFO \
 				-o {o:recaltable}`)
-	inner.SetPathStatic("recaltable", tmpDir+"/"+sampleType+".recal.table")
-	return &GATKRecalibrate{inner}
+	innerProc.SetPathStatic("recaltable", tmpDir+"/"+sampleType+".recal.table")
+	return &GATKRecalibrate{innerProc}
 }
 
 func (p *GATKRecalibrate) InRealBam() *FilePort     { return p.In("realbam") }
@@ -322,8 +323,8 @@ type GATKPrintReads struct {
 	*SciProcess
 }
 
-func NewGATKPrintReads(pr *PipelineRunner, procName string, sampleType string, appsdir string, refDir string) *GATKPrintReads {
-	inner := pr.NewFromShell(procName+"_"+sampleType,
+func NewGATKPrintReads(wf *Workflow, procName string, sampleType string, appsdir string, refDir string) *GATKPrintReads {
+	innerProc := wf.NewProc(procName+"_"+sampleType,
 		`java -Xmx3g -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T PrintReads \
 				-R `+refDir+`/human_g1k_v37_decoy.fasta \
 				-nct 4 \
@@ -334,8 +335,8 @@ func NewGATKPrintReads(pr *PipelineRunner, procName string, sampleType string, a
 				-o {o:recalbam};
 				fname={o:recalbam};
 				mv $fname.bai ${fname%.bam.tmp}.bai;`)
-	inner.SetPathStatic("recalbam", sampleType+".recal.bam")
-	return &GATKPrintReads{inner}
+	innerProc.SetPathStatic("recalbam", sampleType+".recal.bam")
+	return &GATKPrintReads{innerProc}
 }
 
 func (p *GATKPrintReads) InRealBam() *FilePort   { return p.In("realbam") }
