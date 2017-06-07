@@ -7,8 +7,7 @@ import (
 	"strings"
 )
 
-// Set up some paths
-
+// Set up some constant stuff like paths
 const (
 	tmpDir      = "tmp"
 	dataDir     = "dat"
@@ -17,6 +16,15 @@ const (
 	refDir      = appsDir + "/pipeline_test/ref"
 	refFasta    = refDir + "/human_g1k_v37_decoy.fasta"
 	refIndex    = refDir + "/human_g1k_v37_decoy.fasta.fai"
+)
+
+// The main "variable" parameter inputs to the workflow
+var (
+	sampleTypes  = []string{"normal", "tumor"}
+	readsIndexes = map[string][]string{
+		"normal": {"1", "2", "4", "7", "8"},
+		"tumor":  {"1", "2", "3", "5", "6", "7"},
+	}
 )
 
 func main() {
@@ -32,13 +40,6 @@ func main() {
 	// Some technical initialization
 	pr := NewPipelineRunner()
 	mainWfSink := NewSink()
-
-	// Some parameter stuff used below
-	sampleTypes := []string{"normal", "tumor"}
-	readsIndexes := map[string][]string{
-		"normal": {"1", "2", "4", "7", "8"},
-		"tumor":  {"1", "2", "3", "5", "6", "7"},
-	}
 
 	// Init a process "holder" for the final process in this part, as we need
 	// to access the normal and tumor verions specifically
