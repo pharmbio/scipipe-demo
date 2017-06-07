@@ -20,8 +20,6 @@ const (
 )
 
 func main() {
-	// Output slightly more info than default
-	InitLogInfo()
 
 	// Run the Data Download part of the workflow
 	downloadDataWorkflow := NewDownloadWorkflow(dataDir)
