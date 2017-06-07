@@ -48,7 +48,7 @@ func main() {
 		sampleIdx := strconv.Itoa(sampleIdxStr)
 
 		// Some parameter book-keeping
-		indexGen := spcomp.NewStringGen("gen_readsidxes", readsIndexes[sampleType]...)
+		indexGen := spcomp.NewStringGen("gen_readsidxes_"+sampleType, readsIndexes[sampleType]...)
 		wf.Add(indexGen)
 
 		readsPaths1 := []string{}
@@ -59,10 +59,10 @@ func main() {
 		}
 
 		// Align samples
-		readsGen1 := NewIPGen("gen_readspaths1", readsPaths1...)
+		readsGen1 := NewIPGen("gen_readspaths1_"+sampleType, readsPaths1...)
 		wf.Add(readsGen1)
 
-		readsGen2 := NewIPGen("gen_readspaths2", readsPaths2...)
+		readsGen2 := NewIPGen("gen_readspaths2_"+sampleType, readsPaths2...)
 		wf.Add(readsGen2)
 
 		alignSamples := NewBwaAlign(wf, "align_samples", sampleType, refFasta, refIndex)
@@ -71,7 +71,7 @@ func main() {
 		alignSamples.ParamIndexNo().Connect(indexGen.Out)
 
 		// Merge BAMs
-		streamToSubstream := spcomp.NewStreamToSubStream("alignsamples_str2substr")
+		streamToSubstream := spcomp.NewStreamToSubStream("alignsamples_str2substr_" + sampleType)
 		streamToSubstream.In.Connect(alignSamples.OutBam())
 		wf.Add(streamToSubstream)
 
