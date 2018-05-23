@@ -33,8 +33,8 @@ func main() {
 	unzipApps.SetPathReplace("targz", "tar", ".gz", "")
 	unzipApps.In("targz").Connect(downloadApps.Out("apps"))
 
-	unTarApps := wf.NewProc("untar_apps", "tar -xvf {i:tar} -C "+dataDir+" # {o:outdir}")
-	unTarApps.SetPathStatic("outdir", dataDir+"/apps")
+	unTarApps := wf.NewProc("untar_apps", "tar -xvf {i:tar} -C "+dataDir+" && echo untar_done > {o:done}")
+	unTarApps.SetPathStatic("done", dataDir+"/apps/done.flag")
 	unTarApps.In("tar").Connect(unzipApps.Out("tar"))
 
 	// ----------------------------------------------------------------------------
@@ -76,10 +76,10 @@ func main() {
 		alignSamples := wf.NewProc("align_samples_"+sampleType,
 			"bwa mem -R \"@RG\tID:"+sampleType+"_{p:index}\tSM:"+sampleType+"\tLB:"+sampleType+"\tPL:illumina\" -B 3 -t 4 -M "+refFasta+" {i:reads1} {i:reads2}"+
 				"| samtools view -bS -t "+refIndex+" - "+
-				"| samtools sort - > {o:bam} # {i:appsdir}")
+				"| samtools sort - > {o:bam} # {i:untardone}")
 		alignSamples.In("reads1").Connect(readsSourceFastQ1.Out())
 		alignSamples.In("reads2").Connect(readsSourceFastQ2.Out())
-		alignSamples.In("appsdir").Connect(unTarApps.Out("outdir"))
+		alignSamples.In("untardone").Connect(unTarApps.Out("done"))
 		alignSamples.ParamInPort("index").Connect(indexesSource.Out())
 		sampleType := sampleType // Create local copy of variable. Needed to work around Go's funny behaviour of closures on loop variables
 		alignSamples.SetPathCustom("bam", func(t *sp.Task) string {
@@ -196,5 +196,5 @@ func main() {
 		printReads.In("recaltable").Connect(reCalibrate.Out("recaltable"))
 	}
 
-	wf.Run()
+	wf.RunToRegex("print_reads_.*")
 }
