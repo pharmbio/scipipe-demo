@@ -57,7 +57,6 @@ func main() {
 
 	for i, sampleType := range []string{"normal", "tumor"} {
 		si := strconv.Itoa(i)
-		indexSource := NewParamSource(wf, "index_src_"+sampleType, indexes[sampleType]...)
 
 		for _, idx := range indexes[sampleType] {
 			fastqPaths1[sampleType] = append(fastqPaths1[sampleType], origDataDir+"/tiny_"+sampleType+"_L00"+idx+"_R1.fastq.gz")
@@ -67,19 +66,22 @@ func main() {
 		// --------------------------------------------------------------------------------
 		// Align samples
 		// --------------------------------------------------------------------------------
-		readsFastQ1 := NewIPSource(wf, "reads_fastq1_"+sampleType, fastqPaths1[sampleType]...)
-		readsFastQ2 := NewIPSource(wf, "reads_fastq2_"+sampleType, fastqPaths2[sampleType]...)
 
+		// Create "sources" (processes that send a stream of file IPs or strings)
+		readsSourceFastQ1 := spcomp.NewFileSource(wf, "reads_fastq1_"+sampleType, fastqPaths1[sampleType]...)
+		readsSourceFastQ2 := spcomp.NewFileSource(wf, "reads_fastq2_"+sampleType, fastqPaths2[sampleType]...)
+		indexesSource := spcomp.NewParamSource(wf, "index_src_"+sampleType, indexes[sampleType]...)
+
+		// Align Samples component
 		alignSamples := wf.NewProc("align_samples_"+sampleType,
 			"bwa mem -R \"@RG\tID:"+sampleType+"_{p:index}\tSM:"+sampleType+"\tLB:"+sampleType+"\tPL:illumina\" -B 3 -t 4 -M "+refFasta+" {i:reads1} {i:reads2}"+
 				"| samtools view -bS -t "+refIndex+" - "+
 				"| samtools sort - > {o:bam} # {i:appsdir}")
-		alignSamples.In("reads1").Connect(readsFastQ1.Out())
-		alignSamples.In("reads2").Connect(readsFastQ2.Out())
+		alignSamples.In("reads1").Connect(readsSourceFastQ1.Out())
+		alignSamples.In("reads2").Connect(readsSourceFastQ2.Out())
 		alignSamples.In("appsdir").Connect(unTarApps.Out("outdir"))
-		alignSamples.ParamInPort("index").Connect(indexSource.Out())
-
-		sampleType := sampleType // needed to work around Go's funny behaviour of closures
+		alignSamples.ParamInPort("index").Connect(indexesSource.Out())
+		sampleType := sampleType // Create local copy of variable. Needed to work around Go's funny behaviour of closures on loop variables
 		alignSamples.SetPathCustom("bam", func(t *sp.Task) string {
 			return tmpDir + "/" + sampleType + "_" + t.Param("index") + ".bam"
 		})
@@ -195,59 +197,4 @@ func main() {
 	}
 
 	wf.Run()
-}
-
-// ----------------------------------------------------------------------------
-// Helper processes
-// ----------------------------------------------------------------------------
-
-// ParamSource will feed parameters on an out-port
-type ParamSource struct {
-	sp.BaseProcess
-	params []string
-}
-
-// NewParamSource returns a new ParamSource
-func NewParamSource(wf *sp.Workflow, name string, params ...string) *ParamSource {
-	p := &ParamSource{
-		BaseProcess: sp.NewBaseProcess(wf, name),
-		params:      params,
-	}
-	p.InitParamOutPort(p, "out")
-	return p
-}
-
-func (p *ParamSource) Out() *sp.ParamOutPort { return p.ParamOutPort("out") }
-
-// Run runs the process
-func (p *ParamSource) Run() {
-	defer p.CloseAllOutPorts()
-	for _, param := range p.params {
-		p.Out().Send(param)
-	}
-}
-
-// ----------------------------------------------------------------------------
-
-type IPSource struct {
-	sp.BaseProcess
-	filePaths []string
-}
-
-func NewIPSource(wf *sp.Workflow, name string, filePaths ...string) *IPSource {
-	p := &IPSource{
-		BaseProcess: sp.NewBaseProcess(wf, name),
-		filePaths:   filePaths,
-	}
-	p.InitOutPort(p, "out")
-	return p
-}
-
-func (p *IPSource) Out() *sp.OutPort { return p.OutPort("out") }
-
-func (p *IPSource) Run() {
-	defer p.CloseAllOutPorts()
-	for _, filePath := range p.filePaths {
-		p.Out().Send(sp.NewFileIP(filePath))
-	}
 }
