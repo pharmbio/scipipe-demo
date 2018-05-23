@@ -1,4 +1,3 @@
-# Cancer Analysis Workflow in SciPipe
+# Use case workflows for SciPipe
 
-A project to re-implement [SciLifeLab](http://scilifelab.se)'s [Cancer Analysis Pipeline](https://github.com/SciLifeLab/CAW)
-in [SciPipe](http://scipipe.org/).
+A few use case workflows for the [SciPipe](http://scipipe.org) publication.
