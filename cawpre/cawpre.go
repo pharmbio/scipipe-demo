@@ -56,6 +56,7 @@ func main() {
 	streamToSubstream := map[string]*spcomp.StreamToSubStream{}
 
 	for i, sampleType := range []string{"normal", "tumor"} {
+		sampleType := sampleType // Create local copy of variable. Needed to work around Go's funny behaviour of closures on loop variables
 		si := strconv.Itoa(i)
 
 		for _, idx := range indexes[sampleType] {
@@ -73,15 +74,14 @@ func main() {
 		indexesSource := spcomp.NewParamSource(wf, "index_src_"+sampleType, indexes[sampleType]...)
 
 		// Align Samples component
-		alignSamples := wf.NewProc("align_samples_"+sampleType,
-			"bwa mem -R \"@RG\tID:"+sampleType+"_{p:index}\tSM:"+sampleType+"\tLB:"+sampleType+"\tPL:illumina\" -B 3 -t 4 -M "+refFasta+" {i:reads1} {i:reads2}"+
-				"| samtools view -bS -t "+refIndex+" - "+
-				"| samtools sort - > {o:bam} # {i:untardone}")
+		alignSamples := wf.NewProc("align_samples_"+sampleType, `bwa mem \
+			-R "@RG\tID:`+sampleType+`_{p:index}\tSM:`+sampleType+`\tLB:`+sampleType+`\tPL:illumina" -B 3 -t 4 -M `+refFasta+` {i:reads1} {i:reads2} \
+				| samtools view -bS -t `+refIndex+` - \
+				| samtools sort - > {o:bam} # {i:untardone}`)
 		alignSamples.In("reads1").Connect(readsSourceFastQ1.Out())
 		alignSamples.In("reads2").Connect(readsSourceFastQ2.Out())
 		alignSamples.In("untardone").Connect(unTarApps.Out("done"))
 		alignSamples.ParamInPort("index").Connect(indexesSource.Out())
-		sampleType := sampleType // Create local copy of variable. Needed to work around Go's funny behaviour of closures on loop variables
 		alignSamples.SetPathCustom("bam", func(t *sp.Task) string {
 			return tmpDir + "/" + sampleType + "_" + t.Param("index") + ".bam"
 		})
@@ -196,5 +196,5 @@ func main() {
 		printReads.In("recaltable").Connect(reCalibrate.Out("recaltable"))
 	}
 
-	wf.RunToRegex("print_reads_.*")
+	wf.Run()
 }
