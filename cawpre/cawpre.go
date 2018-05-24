@@ -59,21 +59,19 @@ func main() {
 		sampleType := sampleType // Create local copy of variable. Needed to work around Go's funny behaviour of closures on loop variables
 		si := strconv.Itoa(i)
 
+		// Create "sources" (processes that send a stream of file IPs or strings)
+		indexesSource := spcomp.NewParamSource(wf, "index_src_"+sampleType, indexes[sampleType]...)
 		for _, idx := range indexes[sampleType] {
 			fastqPaths1[sampleType] = append(fastqPaths1[sampleType], origDataDir+"/tiny_"+sampleType+"_L00"+idx+"_R1.fastq.gz")
 			fastqPaths2[sampleType] = append(fastqPaths2[sampleType], origDataDir+"/tiny_"+sampleType+"_L00"+idx+"_R2.fastq.gz")
 		}
+		readsSourceFastQ1 := spcomp.NewFileSource(wf, "reads_fastq1_"+sampleType, fastqPaths1[sampleType]...)
+		readsSourceFastQ2 := spcomp.NewFileSource(wf, "reads_fastq2_"+sampleType, fastqPaths2[sampleType]...)
 
 		// --------------------------------------------------------------------------------
 		// Align samples
 		// --------------------------------------------------------------------------------
 
-		// Create "sources" (processes that send a stream of file IPs or strings)
-		readsSourceFastQ1 := spcomp.NewFileSource(wf, "reads_fastq1_"+sampleType, fastqPaths1[sampleType]...)
-		readsSourceFastQ2 := spcomp.NewFileSource(wf, "reads_fastq2_"+sampleType, fastqPaths2[sampleType]...)
-		indexesSource := spcomp.NewParamSource(wf, "index_src_"+sampleType, indexes[sampleType]...)
-
-		// Align Samples component
 		alignSamples := wf.NewProc("align_samples_"+sampleType, `bwa mem \
 			-R "@RG\tID:`+sampleType+`_{p:index}\tSM:`+sampleType+`\tLB:`+sampleType+`\tPL:illumina" -B 3 -t 4 -M `+refFasta+` {i:reads1} {i:reads2} \
 				| samtools view -bS -t `+refIndex+` - \
