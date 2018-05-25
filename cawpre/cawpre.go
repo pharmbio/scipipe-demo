@@ -50,12 +50,10 @@ func main() {
 	refFasta := refDir + "/human_g1k_v37_decoy.fasta"
 	refIndex := refDir + "/human_g1k_v37_decoy.fasta.fai"
 
-	fastqPaths1 := map[string][]string{} // Python: fastq_paths1 = { "" : [] }
-	fastqPaths2 := map[string][]string{} // Python: fastq_paths2 = { "" : [] }
-
-	indexes := map[string][]string{}
-	indexes["normal"] = []string{"1", "2", "4", "7", "8"}     // Python: ["1","2","4","7","8"]
-	indexes["tumor"] = []string{"1", "2", "3", "5", "6", "7"} // Python: ["1","2","3","5","6","7"]
+	indexes := map[string][]string{
+		"normal": []string{"1", "2", "4", "7", "8"},
+		"tumor":  []string{"1", "2", "3", "5", "6", "7"},
+	}
 
 	// Init some process "holders"
 	markDuplicatesProcs := map[string]*sp.Process{}
@@ -65,37 +63,36 @@ func main() {
 		sampleType := sampleType // Create local copy of variable. Needed to work around Go's funny behaviour of closures on loop variables
 		si := strconv.Itoa(i)
 
-		// Create "sources" (processes that send a stream of file IPs or strings)
-		indexesSource := spcomp.NewParamSource(wf, "index_src_"+sampleType, indexes[sampleType]...)
+		streamToSubstream[sampleType] = spcomp.NewStreamToSubStream(wf, "stream_to_substream_"+sampleType)
 		for _, idx := range indexes[sampleType] {
-			fastqPaths1[sampleType] = append(fastqPaths1[sampleType], origDataDir+"/tiny_"+sampleType+"_L00"+idx+"_R1.fastq.gz")
-			fastqPaths2[sampleType] = append(fastqPaths2[sampleType], origDataDir+"/tiny_"+sampleType+"_L00"+idx+"_R2.fastq.gz")
-		}
-		readsSourceFastQ1 := spcomp.NewFileSource(wf, "reads_fastq1_"+sampleType, fastqPaths1[sampleType]...)
-		readsSourceFastQ2 := spcomp.NewFileSource(wf, "reads_fastq2_"+sampleType, fastqPaths2[sampleType]...)
+			fastqPaths1 := origDataDir + "/tiny_" + sampleType + "_L00" + idx + "_R1.fastq.gz"
+			fastqPaths2 := origDataDir + "/tiny_" + sampleType + "_L00" + idx + "_R2.fastq.gz"
 
-		// --------------------------------------------------------------------------------
-		// Align samples
-		// --------------------------------------------------------------------------------
+			readsSourceFastQ1 := spcomp.NewFileSource(wf, "reads_fastq1_"+sampleType+"_idx"+idx, fastqPaths1)
+			readsSourceFastQ2 := spcomp.NewFileSource(wf, "reads_fastq2_"+sampleType+"_idx"+idx, fastqPaths2)
 
-		alignSamples := wf.NewProc("align_samples_"+sampleType, `bwa mem \
+			// --------------------------------------------------------------------------------
+			// Align samples
+			// --------------------------------------------------------------------------------
+
+			alignSamples := wf.NewProc("align_samples_"+sampleType+"_idx"+idx, `bwa mem \
 			-R "@RG\tID:`+sampleType+`_{p:index}\tSM:`+sampleType+`\tLB:`+sampleType+`\tPL:illumina" -B 3 -t 4 -M `+refFasta+` {i:reads1} {i:reads2} \
 				| samtools view -bS -t `+refIndex+` - \
 				| samtools sort - > {o:bam} # {i:untardone}`)
-		alignSamples.In("reads1").Connect(readsSourceFastQ1.Out())
-		alignSamples.In("reads2").Connect(readsSourceFastQ2.Out())
-		alignSamples.In("untardone").Connect(unTgzApps.Out("done"))
-		alignSamples.ParamInPort("index").Connect(indexesSource.Out())
-		alignSamples.SetPathCustom("bam", func(t *sp.Task) string {
-			return tmpDir + "/" + sampleType + "_" + t.Param("index") + ".bam"
-		})
+			alignSamples.In("reads1").Connect(readsSourceFastQ1.Out())
+			alignSamples.In("reads2").Connect(readsSourceFastQ2.Out())
+			alignSamples.In("untardone").Connect(unTgzApps.Out("done"))
+			alignSamples.ParamInPort("index").ConnectStr(idx)
+			alignSamples.SetPathCustom("bam", func(t *sp.Task) string {
+				return tmpDir + "/" + sampleType + "_" + t.Param("index") + ".bam"
+			})
+
+			streamToSubstream[sampleType].In().Connect(alignSamples.Out("bam"))
+		}
 
 		// --------------------------------------------------------------------------------
 		// Merge BAMs
 		// --------------------------------------------------------------------------------
-
-		streamToSubstream[sampleType] = spcomp.NewStreamToSubStream(wf, "stream_to_substream_"+sampleType)
-		streamToSubstream[sampleType].In().Connect(alignSamples.Out("bam"))
 
 		mergeBams := wf.NewProc("merge_bams_"+sampleType, "samtools merge -f {o:mergedbam} {i:bams:r: }")
 		mergeBams.In("bams").Connect(streamToSubstream[sampleType].OutSubStream())
