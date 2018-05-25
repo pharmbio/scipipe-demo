@@ -151,7 +151,8 @@ func main() {
 			-known `+refDir+`/Mills_and_1000G_gold_standard.indels.b37.vcf \
 			-XL hs37d5 \
 			-XL NC_007605 \
-			-nWayOut '.real.bam' # {o:realbamnormal} {o:realbamtumor}`)
+			-nWayOut '.real.bam' \
+			&& mv *.md.real.ba* tmp/ # {o:realbamnormal} {o:realbamtumor}`) // Ugly hack to work around the lack of control induced by the -nWayOut way of specifying file name
 	realignIndels.SetPathReplace("bamnormal", "realbamnormal", ".bam", ".real.bam")
 	realignIndels.SetPathReplace("bamtumor", "realbamtumor", ".bam", ".real.bam")
 	realignIndels.In("intervals").Connect(realignCreateTargets.Out("intervals"))
