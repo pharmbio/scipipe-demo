@@ -29,13 +29,9 @@ func main() {
 	downloadApps := wf.NewProc("download_apps", "wget http://uppnex.se/apps.tar.gz -O {o:apps}")
 	downloadApps.SetPathStatic("apps", dataDir+"/uppnex_apps.tar.gz")
 
-	unzipApps := wf.NewProc("unzip_apps", "zcat {i:targz} > {o:tar}")
-	unzipApps.SetPathReplace("targz", "tar", ".gz", "")
-	unzipApps.In("targz").Connect(downloadApps.Out("apps"))
-
-	unTarApps := wf.NewProc("untar_apps", "tar -xvf {i:tar} -C "+dataDir+" && echo untar_done > {o:done}")
-	unTarApps.SetPathStatic("done", dataDir+"/apps/done.flag")
-	unTarApps.In("tar").Connect(unzipApps.Out("tar"))
+	unTgzApps := wf.NewProc("untgz_apps", "tar -zxvf {i:tgz} -C "+dataDir+" && echo untar_done > {o:done}")
+	unTgzApps.SetPathStatic("done", dataDir+"/apps/done.flag")
+	unTgzApps.In("tgz").Connect(downloadApps.Out("apps"))
 
 	// ----------------------------------------------------------------------------
 	// Main Workflow
@@ -78,7 +74,7 @@ func main() {
 				| samtools sort - > {o:bam} # {i:untardone}`)
 		alignSamples.In("reads1").Connect(readsSourceFastQ1.Out())
 		alignSamples.In("reads2").Connect(readsSourceFastQ2.Out())
-		alignSamples.In("untardone").Connect(unTarApps.Out("done"))
+		alignSamples.In("untardone").Connect(unTgzApps.Out("done"))
 		alignSamples.ParamInPort("index").Connect(indexesSource.Out())
 		alignSamples.SetPathCustom("bam", func(t *sp.Task) string {
 			return tmpDir + "/" + sampleType + "_" + t.Param("index") + ".bam"
