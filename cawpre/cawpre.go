@@ -1,14 +1,21 @@
 package main
 
 import (
+	"flag"
 	"strconv"
 
 	sp "github.com/scipipe/scipipe"
 	spcomp "github.com/scipipe/scipipe/components"
 )
 
+var (
+	maxTasks   = flag.Int("maxtasks", 4, "Max number of local cores to use")
+	procsRegex = flag.String("procs", "print_reads.*", "A regex specifying which processes (by name) to run up to")
+)
+
 func main() {
 	sp.InitLogInfo()
+	flag.Parse()
 
 	// ------------------------------------------------
 	// Set up paths
@@ -24,7 +31,7 @@ func main() {
 	// Data Download part of the workflow
 	// ----------------------------------------------------------------------------
 
-	wf := sp.NewWorkflow("caw-preprocessing", 4)
+	wf := sp.NewWorkflow("caw-preprocessing", *maxTasks)
 
 	downloadApps := wf.NewProc("download_apps", "wget http://uppnex.se/apps.tar.gz -O {o:apps}")
 	downloadApps.SetPathStatic("apps", dataDir+"/uppnex_apps.tar.gz")
@@ -190,5 +197,5 @@ func main() {
 		printReads.In("recaltable").Connect(reCalibrate.Out("recaltable"))
 	}
 
-	wf.Run()
+	wf.RunToRegex(*procsRegex)
 }
