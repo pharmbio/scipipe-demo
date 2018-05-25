@@ -2,7 +2,10 @@ package main
 
 import (
 	"flag"
+	"os"
+	"sort"
 	"strconv"
+	"strings"
 
 	sp "github.com/scipipe/scipipe"
 	spcomp "github.com/scipipe/scipipe/components"
@@ -10,7 +13,7 @@ import (
 
 var (
 	maxTasks   = flag.Int("maxtasks", 4, "Max number of local cores to use")
-	procsRegex = flag.String("procs", "print_reads.*", "A regex specifying which processes (by name) to run up to")
+	procsRegex = flag.String("procs", "", "A regex specifying which processes (by name) to run up to")
 )
 
 func main() {
@@ -195,6 +198,19 @@ func main() {
 		printReads.SetPathStatic("recalbam", sampleType+".recal.bam")
 		printReads.In("realbam").Connect(realignIndels.Out("realbam" + sampleType))
 		printReads.In("recaltable").Connect(reCalibrate.Out("recaltable"))
+	}
+
+	// Handle missing flags
+	procNames := []string{}
+	for procName := range wf.Procs() {
+		procNames = append(procNames, procName)
+	}
+	sort.Strings(procNames)
+	procNamesStr := strings.Join(procNames, "\n")
+	if *procsRegex == "" {
+		sp.Error.Println("You must specify a process name pattern. You can specify one of:" + procNamesStr)
+		flag.PrintDefaults()
+		os.Exit(1)
 	}
 
 	wf.RunToRegex(*procsRegex)
