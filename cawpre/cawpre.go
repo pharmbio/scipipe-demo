@@ -17,13 +17,9 @@ var (
 )
 
 func main() {
-	sp.InitLogInfo()
-	flag.Parse()
-
 	// ------------------------------------------------
 	// Set up paths
 	// ------------------------------------------------
-
 	tmpDir := "tmp"
 	appsDir := "data/apps"
 	refDir := appsDir + "/pipeline_test/ref"
@@ -33,8 +29,8 @@ func main() {
 	// ----------------------------------------------------------------------------
 	// Data Download part of the workflow
 	// ----------------------------------------------------------------------------
-
-	wf := sp.NewWorkflow("caw-preprocessing", *maxTasks)
+	flag.Parse()
+	wf := sp.NewWorkflow("caw-preproc", *maxTasks)
 
 	downloadApps := wf.NewProc("download_apps", "wget http://uppnex.se/apps.tar.gz -O {o:apps}")
 	downloadApps.SetPathStatic("apps", dataDir+"/uppnex_apps.tar.gz")
@@ -46,7 +42,6 @@ func main() {
 	// ----------------------------------------------------------------------------
 	// Main Workflow
 	// ----------------------------------------------------------------------------
-
 	refFasta := refDir + "/human_g1k_v37_decoy.fasta"
 	refIndex := refDir + "/human_g1k_v37_decoy.fasta.fai"
 
@@ -74,7 +69,6 @@ func main() {
 			// --------------------------------------------------------------------------------
 			// Align samples
 			// --------------------------------------------------------------------------------
-
 			alignSamples := wf.NewProc("align_samples_"+sampleType+"_idx"+idx, `bwa mem \
 			-R "@RG\tID:`+sampleType+`_{p:index}\tSM:`+sampleType+`\tLB:`+sampleType+`\tPL:illumina" -B 3 -t 4 -M `+refFasta+` {i:reads1} {i:reads2} \
 				| samtools view -bS -t `+refIndex+` - \
@@ -93,7 +87,6 @@ func main() {
 		// --------------------------------------------------------------------------------
 		// Merge BAMs
 		// --------------------------------------------------------------------------------
-
 		mergeBams := wf.NewProc("merge_bams_"+sampleType, "samtools merge -f {o:mergedbam} {i:bams:r: }")
 		mergeBams.In("bams").Connect(streamToSubstream[sampleType].OutSubStream())
 		mergeBams.SetPathStatic("mergedbam", tmpDir+"/"+sampleType+".bam")
@@ -101,7 +94,6 @@ func main() {
 		// --------------------------------------------------------------------------------
 		// Mark Duplicates
 		// --------------------------------------------------------------------------------
-
 		markDuplicates := wf.NewProc("mark_dupes_"+sampleType,
 			`java -Xmx15g -jar `+appsDir+`/picard-tools-1.118/MarkDuplicates.jar \
 				INPUT={i:bam} \
@@ -121,7 +113,6 @@ func main() {
 	// --------------------------------------------------------------------------------
 	// Re-align Reads - Create Targets
 	// --------------------------------------------------------------------------------
-
 	realignCreateTargets := wf.NewProc("realign_create_targets",
 		`java -Xmx3g -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T RealignerTargetCreator  \
 				-I {i:bamnormal} \
@@ -140,7 +131,6 @@ func main() {
 	// --------------------------------------------------------------------------------
 	// Re-align Reads - Re-align Indels
 	// --------------------------------------------------------------------------------
-
 	realignIndels := wf.NewProc("realign_indels",
 		`java -Xmx3g -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T IndelRealigner \
 			-I {i:bamnormal} \
@@ -162,9 +152,7 @@ func main() {
 	// --------------------------------------------------------------------------------
 	// Re-calibrate reads
 	// --------------------------------------------------------------------------------
-
 	for _, sampleType := range []string{"normal", "tumor"} {
-
 		// Re-calibrate
 		reCalibrate := wf.NewProc("recalibrate_"+sampleType,
 			`java -Xmx3g -Djava.io.tmpdir=`+tmpDir+` -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T BaseRecalibrator \
