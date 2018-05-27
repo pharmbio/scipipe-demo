@@ -178,9 +178,9 @@ func main() {
 				-XL hs37d5 \
 				-XL NC_007605 \
 				--BQSR {i:recaltable} \
-				-o {o:recalbam};
-				fname={o:recalbam};
-				mv $fname ${fname%.bam.tmp.bai}.bai;`)
+				-o {o:recalbam} \
+				&& fname={o:recalbam} \
+				&& mv $fname".bai" ${fname%.bam.tmp}.bai;`)
 		printReads.SetPathStatic("recalbam", sampleType+".recal.bam")
 		printReads.In("realbam").Connect(realignIndels.Out("realbam" + sampleType))
 		printReads.In("recaltable").Connect(reCalibrate.Out("recaltable"))
