@@ -180,7 +180,7 @@ func main() {
 				--BQSR {i:recaltable} \
 				-o {o:recalbam} \
 				&& fname={o:recalbam} \
-				&& mv $fname".bai" ${fname%.bam.tmp}.bai;`)
+				&& mv $fname".bai" ${fname%.bam.tmp}.bai && sleep 5`)
 		printReads.SetPathStatic("recalbam", sampleType+".recal.bam")
 		printReads.In("realbam").Connect(realignIndels.Out("realbam" + sampleType))
 		printReads.In("recaltable").Connect(reCalibrate.Out("recaltable"))
