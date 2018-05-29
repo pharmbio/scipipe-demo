@@ -69,10 +69,10 @@ func main() {
 			// --------------------------------------------------------------------------------
 			// Align samples
 			// --------------------------------------------------------------------------------
-			alignSamples := wf.NewProc("align_samples_"+sampleType+"_idx"+idx, `bwa mem \
+			alignSamples := wf.NewProc("align_samples_"+sampleType+"_idx"+idx, appsDir+`/bwa-0.7.15/bwa mem \
 			-R "@RG\tID:`+sampleType+`_{p:index}\tSM:`+sampleType+`\tLB:`+sampleType+`\tPL:illumina" -B 3 -t 4 -M `+refFasta+` {i:reads1} {i:reads2} \
-				| samtools view -bS -t `+refIndex+` - \
-				| samtools sort - > {o:bam} # {i:untardone}`)
+				| `+appsDir+`/samtools-1.3.1/samtools view -bS -t `+refIndex+` - \
+				| `+appsDir+`/samtools-1.3.1/samtools sort - > {o:bam} # {i:untardone}`)
 			alignSamples.In("reads1").Connect(readsSourceFastQ1.Out())
 			alignSamples.In("reads2").Connect(readsSourceFastQ2.Out())
 			alignSamples.In("untardone").Connect(unTgzApps.Out("done"))
@@ -87,7 +87,7 @@ func main() {
 		// --------------------------------------------------------------------------------
 		// Merge BAMs
 		// --------------------------------------------------------------------------------
-		mergeBams := wf.NewProc("merge_bams_"+sampleType, "samtools merge -f {o:mergedbam} {i:bams:r: }")
+		mergeBams := wf.NewProc("merge_bams_"+sampleType, appsDir+"/samtools-1.3.1/samtools merge -f {o:mergedbam} {i:bams:r: }")
 		mergeBams.In("bams").Connect(streamToSubstream[sampleType].OutSubStream())
 		mergeBams.SetPathStatic("mergedbam", tmpDir+"/"+sampleType+".bam")
 
