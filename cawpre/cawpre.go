@@ -123,7 +123,7 @@ func main() {
 				-nt 4 \
 				-XL hs37d5 \
 				-XL NC_007605 \
-				-o {o:intervals}`)
+				-o {o:intervals} && sleep 5`)
 	realignCreateTargets.SetPathStatic("intervals", tmpDir+"/tiny.intervals")
 	realignCreateTargets.In("bamnormal").Connect(markDuplicatesProcs["normal"].Out("bam"))
 	realignCreateTargets.In("bamtumor").Connect(markDuplicatesProcs["tumor"].Out("bam"))
@@ -142,7 +142,7 @@ func main() {
 			-XL hs37d5 \
 			-XL NC_007605 \
 			-nWayOut '.real.bam' \
-			&& mv *.md.real.ba* tmp/ # {o:realbamnormal} {o:realbamtumor}`) // Ugly hack to work around the lack of control induced by the -nWayOut way of specifying file name
+			&& sleep 5 && for f in *md.real.ba{m,i}; do mv "$f" "$f.tmp"; done && mv *.md.real.ba* tmp/ # {o:realbamnormal} {o:realbamtumor}`) // Ugly hack to work around the lack of control induced by the -nWayOut way of specifying file name
 	realignIndels.SetPathReplace("bamnormal", "realbamnormal", ".bam", ".real.bam")
 	realignIndels.SetPathReplace("bamtumor", "realbamtumor", ".bam", ".real.bam")
 	realignIndels.In("intervals").Connect(realignCreateTargets.Out("intervals"))
@@ -165,7 +165,7 @@ func main() {
 				-XL hs37d5 \
 				-XL NC_007605 \
 				-l INFO \
-				-o {o:recaltable}`)
+				-o {o:recaltable} && sleep 5`)
 		reCalibrate.SetPathStatic("recaltable", tmpDir+"/"+sampleType+".recal.table")
 		reCalibrate.In("realbam").Connect(realignIndels.Out("realbam" + sampleType))
 
