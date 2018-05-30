@@ -142,7 +142,7 @@ func main() {
 			-XL hs37d5 \
 			-XL NC_007605 \
 			-nWayOut '.real.bam' \
-			&& sleep 5 && for f in *md.real.ba{m,i}; do mv "$f" "$f.tmp"; done && mv *.md.real.ba* tmp/ # {o:realbamnormal} {o:realbamtumor}`) // Ugly hack to work around the lack of control induced by the -nWayOut way of specifying file name
+			&& sleep 5 && for f in *md.real.bam; do mv "$f" "$f.tmp"; done && mv *.md.real.ba* tmp/ # {o:realbamnormal} {o:realbamtumor}`) // Ugly hack to work around the lack of control induced by the -nWayOut way of specifying file name
 	realignIndels.SetPathReplace("bamnormal", "realbamnormal", ".bam", ".real.bam")
 	realignIndels.SetPathReplace("bamtumor", "realbamtumor", ".bam", ".real.bam")
 	realignIndels.In("intervals").Connect(realignCreateTargets.Out("intervals"))
