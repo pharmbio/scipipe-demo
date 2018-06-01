@@ -68,17 +68,19 @@ func main() {
 			sj := strconv.Itoa(j)
 
 			// define input file
-			fastqPath := origDataDir + "/" + samplePrefix + "_" + sj + "_.chr11.fq.gz"
-			readsSourceFastQ := spcomp.NewFileSource(wf, samplePrefix + "_" + sj + "_.chr11.fq.gz", fastqPath)
+			fastqPath := origDataDir + "/" + samplePrefix + "_" + sj + ".chr11.fq.gz"
+			readsSourceFastQ := spcomp.NewFileSource(wf, "fastqFile_fastqc_"+samplePrefix + "_" + sj + ".chr11.fq.gz", fastqPath)
 
 			// --------------------------------------------------------------------------------
 			// Quality reporting
 			// --------------------------------------------------------------------------------
-			fastQSamples := wf.NewProc("fastq_sample_" + samplePrefix + "_" + sj,
+			fastQSamples := wf.NewProc("fastqc_sample_" + samplePrefix + "_" + sj,
 							appsDir + "/FastQC-0.11.5/fastqc {i:reads} -o " + tmpDir + "/rnaseqpre/fastqc && echo fastqc_done > {o:done} # {i:untardone}")
 			fastQSamples.In("reads").Connect(readsSourceFastQ.Out())
 			fastQSamples.In("untardone").Connect(unTgzApps.Out("done"))
-			fastQSamples.SetPathStatic("done", tmpDir + "/rnaseqpre/fastqc/done.flag")
+			fastQSamples.SetPathCustom("done", func(t *sp.Task) string {
+				return tmpDir + "/rnaseqpre/fastqc/done.flag.tmp"  // .tmp not removed?
+			})
 
 			streamToSubstream[samplePrefix].In().Connect(fastQSamples.Out("done"))
 		}
@@ -86,7 +88,15 @@ func main() {
 		// --------------------------------------------------------------------------------
 		// Align samples
 		// --------------------------------------------------------------------------------
-		alignSamples := wf.NewProc("align_samples_"+samplePrefix, appsDir+"/STAR-2.5.3a/STAR --genomeDir "+starIndex+" --readFilesIn "+origDataDir+"/"+samplePrefix+"_1.chr11.fq.gz" +origDataDir+"/"+samplePrefix+"_2.chr11.fq.gz --runThreadN "+smaxTasks+" --readFilesCommand zcat --outFileNamePrefix "+tmpDir+"/rnaseqpre/star/"+samplePrefix+".chr11. --outSAMtype BAM SortedByCoordinate # {i:fastqc}")
+		// define input files
+		fastqPath1 := origDataDir + "/" + samplePrefix + "_1.chr11.fq.gz"
+		fastqPath2 := origDataDir + "/" + samplePrefix + "_2.chr11.fq.gz"
+		readsSourceFastQ1 := spcomp.NewFileSource(wf, "fastqFile_align_"+samplePrefix + "_1.chr11.fq.gz", fastqPath1)
+		readsSourceFastQ2 := spcomp.NewFileSource(wf, "fastqFile_align_"+samplePrefix + "_2.chr11.fq.gz", fastqPath2)
+
+		alignSamples := wf.NewProc("align_samples_"+samplePrefix, appsDir+"/STAR-2.5.3a/STAR --genomeDir "+starIndex+" --readFilesIn {i:reads1} {i:reads2} --runThreadN "+smaxTasks+" --readFilesCommand zcat --outFileNamePrefix "+tmpDir+"/rnaseqpre/star/"+samplePrefix+".chr11. --outSAMtype BAM SortedByCoordinate # {i:fastqc}")
+		alignSamples.In("reads1").Connect(readsSourceFastQ1.Out())
+		alignSamples.In("reads2").Connect(readsSourceFastQ2.Out())
 		alignSamples.In("fastqc").Connect(streamToSubstream[samplePrefix].OutSubStream())
 		alignSamples.SetPathStatic("bam.aligned", tmpDir+"/rnaseqpre/star/"+samplePrefix+".chr11.bam")
 		starProcs[samplePrefix] = alignSamples
