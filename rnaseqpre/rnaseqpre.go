@@ -12,8 +12,9 @@ import (
 )
 
 var (
+	graph 	   = flag.Bool("graph", false, "Plot graph and nothing more")
 	maxTasks   = flag.Int("maxtasks", 4, "Max number of local cores to use")
-	procsRegex = flag.String("procs", "align_samples.*", "A regex specifying which processes (by name) to run up to")
+	procsRegex = flag.String("procs", "align.*", "A regex specifying which processes (by name) to run up to")
 )
 
 func main() {
@@ -79,7 +80,7 @@ func main() {
 			fastQSamples.In("reads").Connect(readsSourceFastQ.Out())
 			fastQSamples.In("untardone").Connect(unTgzApps.Out("done"))
 			fastQSamples.SetPathCustom("done", func(t *sp.Task) string {
-				return tmpDir + "/rnaseqpre/fastqc/done.flag.tmp"  // .tmp not removed?
+				return tmpDir + "/rnaseqpre/fastqc/done.flag"  // .tmp not removed?
 			})
 
 			streamToSubstream[samplePrefix].In().Connect(fastQSamples.Out("done"))
@@ -94,10 +95,12 @@ func main() {
 		readsSourceFastQ1 := spcomp.NewFileSource(wf, "fastqFile_align_"+samplePrefix + "_1.chr11.fq.gz", fastqPath1)
 		readsSourceFastQ2 := spcomp.NewFileSource(wf, "fastqFile_align_"+samplePrefix + "_2.chr11.fq.gz", fastqPath2)
 
-		alignSamples := wf.NewProc("align_samples_"+samplePrefix, appsDir+"/STAR-2.5.3a/STAR --genomeDir "+starIndex+" --readFilesIn {i:reads1} {i:reads2} --runThreadN "+smaxTasks+" --readFilesCommand zcat --outFileNamePrefix "+tmpDir+"/rnaseqpre/star/"+samplePrefix+".chr11. --outSAMtype BAM SortedByCoordinate # {i:fastqc}")
+		alignSamples := wf.NewProc("align_samples_"+samplePrefix, appsDir+"/STAR-2.5.3a/STAR --genomeDir "+starIndex+" --readFilesIn {i:reads1} {i:reads2} --runThreadN "+smaxTasks+" --readFilesCommand zcat --outFileNamePrefix "+tmpDir+"/rnaseqpre/star/"+samplePrefix+".chr11. --outSAMtype BAM SortedByCoordinate # {i:fastqc} {o:bam.aligned}")
+
 		alignSamples.In("reads1").Connect(readsSourceFastQ1.Out())
 		alignSamples.In("reads2").Connect(readsSourceFastQ2.Out())
 		alignSamples.In("fastqc").Connect(streamToSubstream[samplePrefix].OutSubStream())
+		
 		alignSamples.SetPathStatic("bam.aligned", tmpDir+"/rnaseqpre/star/"+samplePrefix+".chr11.bam")
 		starProcs[samplePrefix] = alignSamples
 
@@ -215,5 +218,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	wf.RunToRegex(*procsRegex)
+	if *graph {
+		wf.PlotGraph("rnaseq.dot", true, true)
+	} else {
+		wf.RunToRegex(*procsRegex)
+	}
 }
