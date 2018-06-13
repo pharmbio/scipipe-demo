@@ -62,43 +62,43 @@ func main() {
 
 		// Align samples
 		alignSamples := NewBwaAlign(wf, "align_samples", sampleType, refFasta, refIndex)
-		alignSamples.InReads1().Connect(readsSrc1.Out())
-		alignSamples.InReads2().Connect(readsSrc2.Out())
-		alignSamples.ParamIndexNo().Connect(indexSrc.Out())
+		alignSamples.InReads1().From(readsSrc1.Out())
+		alignSamples.InReads2().From(readsSrc2.Out())
+		alignSamples.ParamIndexNo().From(indexSrc.Out())
 
 		// Merge BAMs
 		streamToSubstream := spcomp.NewStreamToSubStream(wf, "alignsamples_str2substr_"+sampleType)
-		streamToSubstream.In().Connect(alignSamples.OutBam())
+		streamToSubstream.In().From(alignSamples.OutBam())
 
 		mergeBams := NewSamtoolsMerge(wf, "merge_bams", sampleType, tmpDir)
-		mergeBams.InBams().Connect(streamToSubstream.OutSubStream())
+		mergeBams.InBams().From(streamToSubstream.OutSubStream())
 
 		// Mark Duplicates
 		markDupes := NewGATKMarkDuplicates(wf, "mark_duplicates", sampleType, sampleIdx, appsDir, tmpDir)
-		markDupes.InBam().Connect(mergeBams.OutMergedBam())
+		markDupes.InBam().From(mergeBams.OutMergedBam())
 		markDupesProcs[sampleType] = markDupes
 	}
 
 	// Re-align Reads - Create Targets
 	realignCreateTargets := NewGATKRealignCreateTargets(wf, "realign_create_targets", appsDir, tmpDir)
-	realignCreateTargets.In("bamnormal").Connect(markDupesProcs["normal"].OutBam())
-	realignCreateTargets.In("bamtumor").Connect(markDupesProcs["tumor"].OutBam())
+	realignCreateTargets.In("bamnormal").From(markDupesProcs["normal"].OutBam())
+	realignCreateTargets.In("bamtumor").From(markDupesProcs["tumor"].OutBam())
 
 	// Re-align Reads - Re-align Indels
 	realignIndels := NewGATKRealignIndels(wf, "realign_indels", appsDir, refDir, tmpDir)
-	realignIndels.InIntervals().Connect(realignCreateTargets.OutIntervals())
-	realignIndels.InBamNormal().Connect(markDupesProcs["normal"].OutBam())
-	realignIndels.InBamTumor().Connect(markDupesProcs["tumor"].OutBam())
+	realignIndels.InIntervals().From(realignCreateTargets.OutIntervals())
+	realignIndels.InBamNormal().From(markDupesProcs["normal"].OutBam())
+	realignIndels.InBamTumor().From(markDupesProcs["tumor"].OutBam())
 
 	for _, sampleType := range sampleTypes {
 		// Re-calibrate reads
 		reCalibrate := NewGATKRecalibrate(wf, "recalibrate", sampleType, appsDir, refDir, tmpDir)
-		reCalibrate.InRealBam().Connect(realignIndels.Out("realbam" + sampleType))
+		reCalibrate.InRealBam().From(realignIndels.Out("realbam" + sampleType))
 
 		// Print reads
 		printReads := NewGATKPrintReads(wf, "print_reads", sampleType, appsDir, refDir)
-		printReads.In("realbam").Connect(realignIndels.Out("realbam" + sampleType))
-		printReads.In("recaltable").Connect(reCalibrate.Out("recaltable"))
+		printReads.In("realbam").From(realignIndels.Out("realbam" + sampleType))
+		printReads.In("recaltable").From(reCalibrate.Out("recaltable"))
 	}
 
 	// Run workflow
@@ -125,11 +125,11 @@ func NewDownloadWorkflow(dataDir string, cores int) *DownloadWorkflow {
 
 	unzip := wf.NewProc("unzip_apps", "zcat {i:targz} > {o:tar}")
 	unzip.SetPathReplace("targz", "tar", ".gz", "")
-	unzip.In("targz").Connect(dwnld.Out("apps"))
+	unzip.In("targz").From(dwnld.Out("apps"))
 
 	untar := wf.NewProc("untar_apps", "tar -xvf {i:tar} -C "+dataDir+" # {o:outdir}")
 	untar.SetPathStatic("outdir", dataDir+"/apps")
-	untar.In("tar").Connect(unzip.Out("tar"))
+	untar.In("tar").From(unzip.Out("tar"))
 
 	return wf
 }
@@ -157,7 +157,7 @@ func NewBwaAlign(wf *Workflow, procName string, sampleType string, refFasta stri
 	return &BwaAlign{innerProc}
 }
 
-func (p *BwaAlign) ParamIndexNo() *ParamInPort { return p.ParamInPort("indexno") }
+func (p *BwaAlign) ParamIndexNo() *InParamPort { return p.InParamPort("indexno") }
 func (p *BwaAlign) InReads1() *InPort          { return p.In("reads_1") }
 func (p *BwaAlign) InReads2() *InPort          { return p.In("reads_2") }
 func (p *BwaAlign) OutBam() *OutPort           { return p.Out("bam") }

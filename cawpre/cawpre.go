@@ -37,7 +37,7 @@ func main() {
 
 	unTgzApps := wf.NewProc("untgz_apps", "tar -zxvf {i:tgz} -C "+dataDir+" && echo untar_done > {o:done}")
 	unTgzApps.SetPathStatic("done", dataDir+"/apps/done.flag")
-	unTgzApps.In("tgz").Connect(downloadApps.Out("apps"))
+	unTgzApps.In("tgz").From(downloadApps.Out("apps"))
 
 	// ----------------------------------------------------------------------------
 	// Main Workflow
@@ -73,22 +73,22 @@ func main() {
 			-R "@RG\tID:`+sampleType+`_{p:index}\tSM:`+sampleType+`\tLB:`+sampleType+`\tPL:illumina" -B 3 -t 4 -M `+refFasta+` {i:reads1} {i:reads2} \
 				| `+appsDir+`/samtools-1.3.1/samtools view -bS -t `+refIndex+` - \
 				| `+appsDir+`/samtools-1.3.1/samtools sort - > {o:bam} # {i:untardone}`)
-			alignSamples.In("reads1").Connect(readsSourceFastQ1.Out())
-			alignSamples.In("reads2").Connect(readsSourceFastQ2.Out())
-			alignSamples.In("untardone").Connect(unTgzApps.Out("done"))
-			alignSamples.ParamInPort("index").ConnectStr(idx)
+			alignSamples.In("reads1").From(readsSourceFastQ1.Out())
+			alignSamples.In("reads2").From(readsSourceFastQ2.Out())
+			alignSamples.In("untardone").From(unTgzApps.Out("done"))
+			alignSamples.ParamInPort("index").FromStr(idx)
 			alignSamples.SetPathCustom("bam", func(t *sp.Task) string {
 				return tmpDir + "/" + sampleType + "_" + t.Param("index") + ".bam"
 			})
 
-			streamToSubstream[sampleType].In().Connect(alignSamples.Out("bam"))
+			streamToSubstream[sampleType].In().From(alignSamples.Out("bam"))
 		}
 
 		// --------------------------------------------------------------------------------
 		// Merge BAMs
 		// --------------------------------------------------------------------------------
 		mergeBams := wf.NewProc("merge_bams_"+sampleType, appsDir+"/samtools-1.3.1/samtools merge -f {o:mergedbam} {i:bams:r: }")
-		mergeBams.In("bams").Connect(streamToSubstream[sampleType].OutSubStream())
+		mergeBams.In("bams").From(streamToSubstream[sampleType].OutSubStream())
 		mergeBams.SetPathStatic("mergedbam", tmpDir+"/"+sampleType+".bam")
 
 		// --------------------------------------------------------------------------------
@@ -105,7 +105,7 @@ func main() {
 				OUTPUT={o:bam}; \
 				mv `+tmpDir+`/`+sampleType+`_`+si+`.md{.bam.tmp,}.bai;`)
 		markDuplicates.SetPathStatic("bam", tmpDir+"/"+sampleType+"_"+si+".md.bam")
-		markDuplicates.In("bam").Connect(mergeBams.Out("mergedbam"))
+		markDuplicates.In("bam").From(mergeBams.Out("mergedbam"))
 		// Save in map for later use
 		markDuplicatesProcs[sampleType] = markDuplicates
 	}
@@ -125,8 +125,8 @@ func main() {
 				-XL NC_007605 \
 				-o {o:intervals} && sleep 5`)
 	realignCreateTargets.SetPathStatic("intervals", tmpDir+"/tiny.intervals")
-	realignCreateTargets.In("bamnormal").Connect(markDuplicatesProcs["normal"].Out("bam"))
-	realignCreateTargets.In("bamtumor").Connect(markDuplicatesProcs["tumor"].Out("bam"))
+	realignCreateTargets.In("bamnormal").From(markDuplicatesProcs["normal"].Out("bam"))
+	realignCreateTargets.In("bamtumor").From(markDuplicatesProcs["tumor"].Out("bam"))
 
 	// --------------------------------------------------------------------------------
 	// Re-align Reads - Re-align Indels
@@ -145,9 +145,9 @@ func main() {
 			&& sleep 5 && for f in *md.real.bam; do mv "$f" "$f.tmp"; done && mv *.md.real.ba* tmp/ # {o:realbamnormal} {o:realbamtumor}`) // Ugly hack to work around the lack of control induced by the -nWayOut way of specifying file name
 	realignIndels.SetPathReplace("bamnormal", "realbamnormal", ".bam", ".real.bam")
 	realignIndels.SetPathReplace("bamtumor", "realbamtumor", ".bam", ".real.bam")
-	realignIndels.In("intervals").Connect(realignCreateTargets.Out("intervals"))
-	realignIndels.In("bamnormal").Connect(markDuplicatesProcs["normal"].Out("bam"))
-	realignIndels.In("bamtumor").Connect(markDuplicatesProcs["tumor"].Out("bam"))
+	realignIndels.In("intervals").From(realignCreateTargets.Out("intervals"))
+	realignIndels.In("bamnormal").From(markDuplicatesProcs["normal"].Out("bam"))
+	realignIndels.In("bamtumor").From(markDuplicatesProcs["tumor"].Out("bam"))
 
 	// --------------------------------------------------------------------------------
 	// Re-calibrate reads
@@ -167,7 +167,7 @@ func main() {
 				-l INFO \
 				-o {o:recaltable} && sleep 5`)
 		reCalibrate.SetPathStatic("recaltable", tmpDir+"/"+sampleType+".recal.table")
-		reCalibrate.In("realbam").Connect(realignIndels.Out("realbam" + sampleType))
+		reCalibrate.In("realbam").From(realignIndels.Out("realbam" + sampleType))
 
 		// Print reads
 		printReads := wf.NewProc("print_reads_"+sampleType,
@@ -182,8 +182,8 @@ func main() {
 				&& fname={o:recalbam} \
 				&& mv $fname".bai" ${fname%.bam.tmp}.bai && sleep 5`)
 		printReads.SetPathStatic("recalbam", sampleType+".recal.bam")
-		printReads.In("realbam").Connect(realignIndels.Out("realbam" + sampleType))
-		printReads.In("recaltable").Connect(reCalibrate.Out("recaltable"))
+		printReads.In("realbam").From(realignIndels.Out("realbam" + sampleType))
+		printReads.In("recaltable").From(reCalibrate.Out("recaltable"))
 	}
 
 	// Handle missing flags
