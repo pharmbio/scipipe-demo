@@ -76,7 +76,7 @@ func main() {
 			alignSamples.In("reads1").From(readsSourceFastQ1.Out())
 			alignSamples.In("reads2").From(readsSourceFastQ2.Out())
 			alignSamples.In("untardone").From(unTgzApps.Out("done"))
-			alignSamples.ParamInPort("index").FromStr(idx)
+			alignSamples.InParam("index").FromStr(idx)
 			alignSamples.SetPathCustom("bam", func(t *sp.Task) string {
 				return tmpDir + "/" + sampleType + "_" + t.Param("index") + ".bam"
 			})
