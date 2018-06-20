@@ -35,15 +35,15 @@ func main() {
 	downloadApps := wf.NewProc("download_apps", "wget http://uppnex.se/apps.tar.gz -O {o:apps}")
 	downloadApps.SetPathStatic("apps", dataDir+"/uppnex_apps.tar.gz")
 
-	unTgzApps := wf.NewProc("untgz_apps", "tar -zxvf {i:tgz} -C "+dataDir+" && echo untar_done > {o:done}")
+	unTgzApps := wf.NewProc("untgz_apps", "tar -zxvf {i:tgz} -C ../"+dataDir+" && echo untar_done > {o:done}")
 	unTgzApps.SetPathStatic("done", dataDir+"/apps/done.flag")
 	unTgzApps.In("tgz").From(downloadApps.Out("apps"))
 
 	// ----------------------------------------------------------------------------
 	// Main Workflow
 	// ----------------------------------------------------------------------------
-	refFasta := refDir + "/human_g1k_v37_decoy.fasta"
-	refIndex := refDir + "/human_g1k_v37_decoy.fasta.fai"
+	refFasta := refDir + "/human_g1k_v37_decoy.chr1.fasta"
+	refIndex := refDir + "/human_g1k_v37_decoy.fasta.chr1.fai"
 
 	indexes := map[string][]string{
 		"normal": []string{"1", "2", "4", "7", "8"},
@@ -69,10 +69,10 @@ func main() {
 			// --------------------------------------------------------------------------------
 			// Align samples
 			// --------------------------------------------------------------------------------
-			alignSamples := wf.NewProc("align_samples_"+sampleType+"_idx"+idx, appsDir+`/bwa-0.7.15/bwa mem \
-			-R "@RG\tID:`+sampleType+`_{p:index}\tSM:`+sampleType+`\tLB:`+sampleType+`\tPL:illumina" -B 3 -t 4 -M `+refFasta+` {i:reads1} {i:reads2} \
-				| `+appsDir+`/samtools-1.3.1/samtools view -bS -t `+refIndex+` - \
-				| `+appsDir+`/samtools-1.3.1/samtools sort - > {o:bam} # {i:untardone}`)
+			alignSamples := wf.NewProc("align_samples_"+sampleType+"_idx"+idx, "../"+appsDir+`/bwa-0.7.15/bwa mem \
+			-R "@RG\tID:`+sampleType+`_{p:index}\tSM:`+sampleType+`\tLB:`+sampleType+`\tPL:illumina" -B 3 -t 4 -M ../`+refFasta+` {i:reads1} {i:reads2} \
+				| ../`+appsDir+`/samtools-1.3.1/samtools view -bS -t ../`+refIndex+` - \
+				| ../`+appsDir+`/samtools-1.3.1/samtools sort - > {o:bam} # {i:untardone}`)
 			alignSamples.In("reads1").From(readsSourceFastQ1.Out())
 			alignSamples.In("reads2").From(readsSourceFastQ2.Out())
 			alignSamples.In("untardone").From(unTgzApps.Out("done"))
@@ -87,7 +87,7 @@ func main() {
 		// --------------------------------------------------------------------------------
 		// Merge BAMs
 		// --------------------------------------------------------------------------------
-		mergeBams := wf.NewProc("merge_bams_"+sampleType, appsDir+"/samtools-1.3.1/samtools merge -f {o:mergedbam} {i:bams:r: }")
+		mergeBams := wf.NewProc("merge_bams_"+sampleType, "../"+appsDir+"/samtools-1.3.1/samtools merge -f {o:mergedbam} {i:bams:r: }")
 		mergeBams.In("bams").From(streamToSubstream[sampleType].OutSubStream())
 		mergeBams.SetPathStatic("mergedbam", tmpDir+"/"+sampleType+".bam")
 
@@ -95,17 +95,17 @@ func main() {
 		// Mark Duplicates
 		// --------------------------------------------------------------------------------
 		markDuplicates := wf.NewProc("mark_dupes_"+sampleType,
-			`java -Xmx15g -jar `+appsDir+`/picard-tools-1.118/MarkDuplicates.jar \
-				INPUT={i:bam} \
-				METRICS_FILE=`+tmpDir+`/`+sampleType+`_`+si+`.md.bam \
-				TMP_DIR=`+tmpDir+` \
+			`java -Xmx15g -jar ../`+appsDir+`/picard-tools-1.118/MarkDuplicates.jar \
+				INPUT={i:inbam} \
+				METRICS_FILE=../`+tmpDir+`/`+sampleType+`_`+si+`.md.bam \
+				TMP_DIR=../`+tmpDir+` \
 				ASSUME_SORTED=true \
 				VALIDATION_STRINGENCY=LENIENT \
 				CREATE_INDEX=TRUE \
-				OUTPUT={o:bam}; \
-				mv `+tmpDir+`/`+sampleType+`_`+si+`.md{.bam.tmp,}.bai;`)
-		markDuplicates.SetPathStatic("bam", tmpDir+"/"+sampleType+"_"+si+".md.bam")
-		markDuplicates.In("bam").From(mergeBams.Out("mergedbam"))
+				OUTPUT={o:outbam} \
+				#&& mv ../`+tmpDir+`/`+sampleType+`_`+si+".md{.bam.tmp,}.bai")
+		markDuplicates.SetPathStatic("outbam", tmpDir+"/"+sampleType+"_"+si+".md.bam")
+		markDuplicates.In("inbam").From(mergeBams.Out("mergedbam"))
 		// Save in map for later use
 		markDuplicatesProcs[sampleType] = markDuplicates
 	}
@@ -114,40 +114,36 @@ func main() {
 	// Re-align Reads - Create Targets
 	// --------------------------------------------------------------------------------
 	realignCreateTargets := wf.NewProc("realign_create_targets",
-		`java -Xmx3g -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T RealignerTargetCreator  \
+		`java -Xmx3g -jar ../`+appsDir+`/gatk/GenomeAnalysisTK.jar -T RealignerTargetCreator  \
 				-I {i:bamnormal} \
 				-I {i:bamtumor} \
-				-R `+refDir+`/human_g1k_v37_decoy.fasta \
-				-known `+refDir+`/1000G_phase1.indels.b37.vcf \
-				-known `+refDir+`/Mills_and_1000G_gold_standard.indels.b37.vcf \
+				-R ../`+refDir+`/human_g1k_v37_decoy.chr1.fasta \
+				-known ../`+refDir+`/1000G_phase1.indels.b37.chr1.vcf \
+				-known ../`+refDir+`/Mills_and_1000G_gold_standard.indels.b37.chr1.vcf \
 				-nt 4 \
-				-XL hs37d5 \
-				-XL NC_007605 \
-				-o {o:intervals} && sleep 5`)
+				-o {o:intervals}`)
 	realignCreateTargets.SetPathStatic("intervals", tmpDir+"/tiny.intervals")
-	realignCreateTargets.In("bamnormal").From(markDuplicatesProcs["normal"].Out("bam"))
-	realignCreateTargets.In("bamtumor").From(markDuplicatesProcs["tumor"].Out("bam"))
+	realignCreateTargets.In("bamnormal").From(markDuplicatesProcs["normal"].Out("outbam"))
+	realignCreateTargets.In("bamtumor").From(markDuplicatesProcs["tumor"].Out("outbam"))
 
 	// --------------------------------------------------------------------------------
 	// Re-align Reads - Re-align Indels
 	// --------------------------------------------------------------------------------
 	realignIndels := wf.NewProc("realign_indels",
-		`java -Xmx3g -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T IndelRealigner \
+		`java -Xmx3g -jar ../`+appsDir+`/gatk/GenomeAnalysisTK.jar -T IndelRealigner \
 			-I {i:bamnormal} \
 			-I {i:bamtumor} \
-			-R `+refDir+`/human_g1k_v37_decoy.fasta \
+			-R ../`+refDir+`/human_g1k_v37_decoy.chr1.fasta \
 			-targetIntervals {i:intervals} \
-			-known `+refDir+`/1000G_phase1.indels.b37.vcf \
-			-known `+refDir+`/Mills_and_1000G_gold_standard.indels.b37.vcf \
-			-XL hs37d5 \
-			-XL NC_007605 \
+			-known ../`+refDir+`/1000G_phase1.indels.b37.chr1.vcf \
+			-known ../`+refDir+`/Mills_and_1000G_gold_standard.indels.b37.chr1.vcf \
 			-nWayOut '.real.bam' \
-			&& sleep 5 && for f in *md.real.bam; do mv "$f" "$f.tmp"; done && mv *.md.real.ba* tmp/ # {o:realbamnormal} {o:realbamtumor}`) // Ugly hack to work around the lack of control induced by the -nWayOut way of specifying file name
+			&& mv *.md.real.ba* tmp/ # {o:realbamnormal} {o:realbamtumor}`) // Ugly hack to work around the lack of control induced by the -nWayOut way of specifying file name
 	realignIndels.SetPathReplace("bamnormal", "realbamnormal", ".bam", ".real.bam")
 	realignIndels.SetPathReplace("bamtumor", "realbamtumor", ".bam", ".real.bam")
 	realignIndels.In("intervals").From(realignCreateTargets.Out("intervals"))
-	realignIndels.In("bamnormal").From(markDuplicatesProcs["normal"].Out("bam"))
-	realignIndels.In("bamtumor").From(markDuplicatesProcs["tumor"].Out("bam"))
+	realignIndels.In("bamnormal").From(markDuplicatesProcs["normal"].Out("outbam"))
+	realignIndels.In("bamtumor").From(markDuplicatesProcs["tumor"].Out("outbam"))
 
 	// --------------------------------------------------------------------------------
 	// Re-calibrate reads
@@ -155,32 +151,27 @@ func main() {
 	for _, sampleType := range []string{"normal", "tumor"} {
 		// Re-calibrate
 		reCalibrate := wf.NewProc("recalibrate_"+sampleType,
-			`java -Xmx3g -Djava.io.tmpdir=`+tmpDir+` -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T BaseRecalibrator \
-				-R `+refDir+`/human_g1k_v37_decoy.fasta \
+			`java -Xmx3g -Djava.io.tmpdir=../`+tmpDir+` -jar ../`+appsDir+`/gatk/GenomeAnalysisTK.jar -T BaseRecalibrator \
+				-R ../`+refDir+`/human_g1k_v37_decoy.fasta \
 				-I {i:realbam} \
-				-knownSites `+refDir+`/dbsnp_138.b37.vcf \
-				-knownSites `+refDir+`/1000G_phase1.indels.b37.vcf \
-				-knownSites `+refDir+`/Mills_and_1000G_gold_standard.indels.b37.vcf \
+				-knownSites ../`+refDir+`/dbsnp_138.b37.chr1.vcf \
+				-knownSites ../`+refDir+`/1000G_phase1.indels.b37.chr1.vcf \
+				-knownSites ../`+refDir+`/Mills_and_1000G_gold_standard.indels.b37.chr1.vcf \
 				-nct 4 \
-				-XL hs37d5 \
-				-XL NC_007605 \
 				-l INFO \
-				-o {o:recaltable} && sleep 5`)
+				-o {o:recaltable}`)
 		reCalibrate.SetPathStatic("recaltable", tmpDir+"/"+sampleType+".recal.table")
 		reCalibrate.In("realbam").From(realignIndels.Out("realbam" + sampleType))
 
 		// Print reads
 		printReads := wf.NewProc("print_reads_"+sampleType,
-			`java -Xmx3g -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T PrintReads \
-				-R `+refDir+`/human_g1k_v37_decoy.fasta \
+			`java -Xmx3g -jar ../`+appsDir+`/gatk/GenomeAnalysisTK.jar -T PrintReads \
+				-R ../`+refDir+`/human_g1k_v37_decoy.fasta \
 				-nct 4 \
 				-I {i:realbam} \
-				-XL hs37d5 \
-				-XL NC_007605 \
 				--BQSR {i:recaltable} \
 				-o {o:recalbam} \
-				&& fname={o:recalbam} \
-				&& mv $fname".bai" ${fname%.bam.tmp}.bai && sleep 5`)
+				&& fname={o:recalbam}`)
 		printReads.SetPathStatic("recalbam", sampleType+".recal.bam")
 		printReads.In("realbam").From(realignIndels.Out("realbam" + sampleType))
 		printReads.In("recaltable").From(reCalibrate.Out("recaltable"))
