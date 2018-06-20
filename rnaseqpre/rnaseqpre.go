@@ -82,8 +82,7 @@ func main() {
 				return tmpDir + "/rnaseqpre/fastqc/done.flag" // .tmp not removed?
 			})
 
-			streamToSubstream[samplePrefix].In().From(fastQSamples.Out("done"))
-		}
+			streamToSubstream[samplePrefix][j].In().From(fastQSamples.Out("done")) }
 
 		// --------------------------------------------------------------------------------
 		// Align samples
@@ -102,6 +101,47 @@ func main() {
 
 		alignSamples.SetPathStatic("bam_aligned", tmpDir+"/rnaseqpre/star/"+samplePrefix+".chr11.bam")
 		starProcs[samplePrefix] = alignSamples
+
+
+
+		// STRINGTIE PER SAMPLE
+
+
+
+	// STRINGTIE MERGE, once for all samples
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 		// 	// --------------------------------------------------------------------------------
 		// 	// Mark Duplicates
