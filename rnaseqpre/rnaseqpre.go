@@ -69,13 +69,13 @@ func main() {
 
 			// define input file
 			fastqPath := origDataDir + "/" + samplePrefix + "_" + sj + ".chr11.fq.gz"
-			readsSourceFastQ := spcomp.NewFileSource(wf, "fastqFile_fastqc_"+samplePrefix+"_"+sj+".chr11.fq.gz", fastqPath)
+			readsSourceFastQ := spcomp.NewFileSource(wf, "fastqFile_fastqc_"+samplePrefix+"_"+sj, fastqPath)
 
 			// --------------------------------------------------------------------------------
 			// Quality reporting
 			// --------------------------------------------------------------------------------
 			fastQSamples := wf.NewProc("fastqc_sample_"+samplePrefix+"_"+sj,
-				appsDir+"/FastQC-0.11.5/fastqc {i:reads} -o "+tmpDir+"/rnaseqpre/fastqc && echo fastqc_done > {o:done} # {i:untardone}")
+				"../"+appsDir+"/FastQC-0.11.5/fastqc {i:reads} -o "+tmpDir+"/rnaseqpre/fastqc && echo fastqc_done > {o:done} # {i:untardone}")
 			fastQSamples.In("reads").From(readsSourceFastQ.Out())
 			fastQSamples.In("untardone").From(unTgzApps.Out("done"))
 			fastQSamples.SetPathCustom("done", func(t *sp.Task) string {
@@ -94,20 +94,20 @@ func main() {
 		readsSourceFastQ1 := spcomp.NewFileSource(wf, "fastqFile_align_"+samplePrefix+"_1.chr11.fq.gz", fastqPath1)
 		readsSourceFastQ2 := spcomp.NewFileSource(wf, "fastqFile_align_"+samplePrefix+"_2.chr11.fq.gz", fastqPath2)
 
-		alignSamples := wf.NewProc("align_samples_"+samplePrefix, appsDir+"/STAR-2.5.3a/STAR --genomeDir "+starIndex+" --readFilesIn {i:reads1} {i:reads2} --runThreadN "+smaxTasks+" --readFilesCommand zcat --outFileNamePrefix "+tmpDir+"/rnaseqpre/star/"+samplePrefix+".chr11. --outSAMtype BAM SortedByCoordinate # {i:fastqc} {o:bam.aligned}")
+		alignSamples := wf.NewProc("align_samples_"+samplePrefix, "../"+appsDir+"/STAR-2.5.3a/STAR --genomeDir ../"+starIndex+" --readFilesIn {i:reads1} {i:reads2} --runThreadN "+smaxTasks+" --readFilesCommand zcat --outFileNamePrefix ../"+tmpDir+"/rnaseqpre/star/"+samplePrefix+".chr11. --outSAMtype BAM SortedByCoordinate # {i:fastqc} {o:bam_aligned}")
 
 		alignSamples.In("reads1").From(readsSourceFastQ1.Out())
 		alignSamples.In("reads2").From(readsSourceFastQ2.Out())
 		alignSamples.In("fastqc").From(streamToSubstream[samplePrefix].OutSubStream())
 
-		alignSamples.SetPathStatic("bam.aligned", tmpDir+"/rnaseqpre/star/"+samplePrefix+".chr11.bam")
+		alignSamples.SetPathStatic("bam_aligned", tmpDir+"/rnaseqpre/star/"+samplePrefix+".chr11.bam")
 		starProcs[samplePrefix] = alignSamples
 
 		// 	// --------------------------------------------------------------------------------
 		// 	// Mark Duplicates
 		// 	// --------------------------------------------------------------------------------
 		// 	markDuplicates := wf.NewProc("mark_dupes_"+sampleType,
-		// 		`java -Xmx15g -jar `+appsDir+`/picard-tools-1.118/MarkDuplicates.jar \
+		// 		`java -Xmx15g -jar `+"../"+appsDir+`/picard-tools-1.118/MarkDuplicates.jar \
 		// 			INPUT={i:bam} \
 		// 			METRICS_FILE=`+tmpDir+`/`+sampleType+`_`+si+`.md.bam \
 		// 			TMP_DIR=`+tmpDir+` \
@@ -126,7 +126,7 @@ func main() {
 		// // Re-align Reads - Create Targets
 		// // --------------------------------------------------------------------------------
 		// realignCreateTargets := wf.NewProc("realign_create_targets",
-		// 	`java -Xmx3g -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T RealignerTargetCreator  \
+		// 	`java -Xmx3g -jar `+"../"+appsDir+`/gatk/GenomeAnalysisTK.jar -T RealignerTargetCreator  \
 		// 			-I {i:bamnormal} \
 		// 			-I {i:bamtumor} \
 		// 			-R `+refDir+`/human_g1k_v37_decoy.fasta \
@@ -144,7 +144,7 @@ func main() {
 		// // Re-align Reads - Re-align Indels
 		// // --------------------------------------------------------------------------------
 		// realignIndels := wf.NewProc("realign_indels",
-		// 	`java -Xmx3g -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T IndelRealigner \
+		// 	`java -Xmx3g -jar `+"../"+appsDir+`/gatk/GenomeAnalysisTK.jar -T IndelRealigner \
 		// 		-I {i:bamnormal} \
 		// 		-I {i:bamtumor} \
 		// 		-R `+refDir+`/human_g1k_v37_decoy.fasta \
@@ -167,7 +167,7 @@ func main() {
 		// for _, sampleType := range []string{"normal", "tumor"} {
 		// 	// Re-calibrate
 		// 	reCalibrate := wf.NewProc("recalibrate_"+sampleType,
-		// 		`java -Xmx3g -Djava.io.tmpdir=`+tmpDir+` -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T BaseRecalibrator \
+		// 		`java -Xmx3g -Djava.io.tmpdir=`+tmpDir+` -jar `+"../"+appsDir+`/gatk/GenomeAnalysisTK.jar -T BaseRecalibrator \
 		// 			-R `+refDir+`/human_g1k_v37_decoy.fasta \
 		// 			-I {i:realbam} \
 		// 			-knownSites `+refDir+`/dbsnp_138.b37.vcf \
@@ -183,7 +183,7 @@ func main() {
 
 		// 	// Print reads
 		// 	printReads := wf.NewProc("print_reads_"+sampleType,
-		// 		`java -Xmx3g -jar `+appsDir+`/gatk/GenomeAnalysisTK.jar -T PrintReads \
+		// 		`java -Xmx3g -jar `+"../"+appsDir+`/gatk/GenomeAnalysisTK.jar -T PrintReads \
 		// 			-R `+refDir+`/human_g1k_v37_decoy.fasta \
 		// 			-nct 4 \
 		// 			-I {i:realbam} \
