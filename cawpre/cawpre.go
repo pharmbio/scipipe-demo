@@ -33,10 +33,10 @@ func main() {
 	wf := sp.NewWorkflow("caw-preproc", *maxTasks)
 
 	downloadApps := wf.NewProc("download_apps", "wget http://uppnex.se/apps.tar.gz -O {o:apps}")
-	downloadApps.SetPathStatic("apps", dataDir+"/uppnex_apps.tar.gz")
+	downloadApps.SetOut("apps", dataDir+"/uppnex_apps.tar.gz")
 
 	unTgzApps := wf.NewProc("untgz_apps", "tar -zxvf {i:tgz} -C ../"+dataDir+" && echo untar_done > {o:done}")
-	unTgzApps.SetPathStatic("done", dataDir+"/apps/done.flag")
+	unTgzApps.SetOut("done", dataDir+"/apps/done.flag")
 	unTgzApps.In("tgz").From(downloadApps.Out("apps"))
 
 	// ----------------------------------------------------------------------------
@@ -77,9 +77,7 @@ func main() {
 			alignSamples.In("reads2").From(readsSourceFastQ2.Out())
 			alignSamples.In("untardone").From(unTgzApps.Out("done"))
 			alignSamples.InParam("index").FromStr(idx)
-			alignSamples.SetPathCustom("bam", func(t *sp.Task) string {
-				return tmpDir + "/" + sampleType + "_" + t.Param("index") + ".bam"
-			})
+			alignSamples.SetOut("bam", tmpDir+"/"+sampleType+"_{p:index}.bam")
 
 			streamToSubstream[sampleType].In().From(alignSamples.Out("bam"))
 		}
@@ -89,7 +87,7 @@ func main() {
 		// --------------------------------------------------------------------------------
 		mergeBams := wf.NewProc("merge_bams_"+sampleType, "../"+appsDir+"/samtools-1.3.1/samtools merge -f {o:mergedbam} {i:bams:r: }")
 		mergeBams.In("bams").From(streamToSubstream[sampleType].OutSubStream())
-		mergeBams.SetPathStatic("mergedbam", tmpDir+"/"+sampleType+".bam")
+		mergeBams.SetOut("mergedbam", tmpDir+"/"+sampleType+".bam")
 
 		// --------------------------------------------------------------------------------
 		// Mark Duplicates
@@ -102,9 +100,8 @@ func main() {
 				ASSUME_SORTED=true \
 				VALIDATION_STRINGENCY=LENIENT \
 				CREATE_INDEX=TRUE \
-				OUTPUT={o:outbam} \
-				#&& mv ../`+tmpDir+`/`+sampleType+`_`+si+".md{.bam.tmp,}.bai")
-		markDuplicates.SetPathStatic("outbam", tmpDir+"/"+sampleType+"_"+si+".md.bam")
+				OUTPUT={o:outbam}`)
+		markDuplicates.SetOut("outbam", tmpDir+"/"+sampleType+".md.bam")
 		markDuplicates.In("inbam").From(mergeBams.Out("mergedbam"))
 		// Save in map for later use
 		markDuplicatesProcs[sampleType] = markDuplicates
@@ -122,7 +119,7 @@ func main() {
 				-known ../`+refDir+`/Mills_and_1000G_gold_standard.indels.b37.chr1.vcf \
 				-nt 4 \
 				-o {o:intervals}`)
-	realignCreateTargets.SetPathStatic("intervals", tmpDir+"/tiny.intervals")
+	realignCreateTargets.SetOut("intervals", tmpDir+"/tiny.intervals")
 	realignCreateTargets.In("bamnormal").From(markDuplicatesProcs["normal"].Out("outbam"))
 	realignCreateTargets.In("bamtumor").From(markDuplicatesProcs["tumor"].Out("outbam"))
 
@@ -160,7 +157,7 @@ func main() {
 				-nct 4 \
 				-l INFO \
 				-o {o:recaltable}`)
-		reCalibrate.SetPathStatic("recaltable", tmpDir+"/"+sampleType+".recal.table")
+		reCalibrate.SetOut("recaltable", tmpDir+"/"+sampleType+".recal.table")
 		reCalibrate.In("realbam").From(realignIndels.Out("realbam" + sampleType))
 
 		// Print reads
@@ -172,7 +169,7 @@ func main() {
 				--BQSR {i:recaltable} \
 				-o {o:recalbam} \
 				&& fname={o:recalbam}`)
-		printReads.SetPathStatic("recalbam", sampleType+".recal.bam")
+		printReads.SetOut("recalbam", sampleType+".recal.bam")
 		printReads.In("realbam").From(realignIndels.Out("realbam" + sampleType))
 		printReads.In("recaltable").From(reCalibrate.Out("recaltable"))
 	}
