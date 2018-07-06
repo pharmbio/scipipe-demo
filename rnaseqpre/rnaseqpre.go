@@ -23,8 +23,8 @@ func main() {
 	// ------------------------------------------------
 	tmpDir := "tmp"
 	appsDir := "data/apps"
-	refDir := appsDir + "/pipeline_test/ref"
-	origDataDir := appsDir + "/pipeline_test/data"
+	refDir := appsDir + "/ref"
+	origDataDir := appsDir + "/data"
 	dataDir := "data"
 	smaxTasks := strconv.Itoa(*maxTasks)
 
@@ -35,7 +35,7 @@ func main() {
 	wf := sp.NewWorkflow("rnaseqpre", *maxTasks)
 
 	downloadApps := wf.NewProc("download_apps", "wget http://uppnex.se/apps.tar.gz -O {o:apps}")
-	downloadApps.SetPathStatic("apps", dataDir+"/uppnex_apps.tar.gz")
+	downloadApps.SetPathStatic("apps", dataDir+"/apps.tar.gz")
 
 	unTgzApps := wf.NewProc("untgz_apps", "tar -zxvf {i:tgz} -C "+dataDir+" && echo untar_done > {o:done}")
 	unTgzApps.SetPathStatic("done", dataDir+"/apps/done.flag")
@@ -46,7 +46,7 @@ func main() {
 	// ----------------------------------------------------------------------------
 	samplePrefixes := []string{"SRR3222409"}
 	// refGTF := refDir + "/human_g1k_v37_decoy.fasta"
-	starIndex := refDir + "/rnaseq/star"
+	starIndex := refDir + "/star"
 
 	// Init some process "holders"
 	streamToSubstream := map[string]*spcomp.StreamToSubStream{}

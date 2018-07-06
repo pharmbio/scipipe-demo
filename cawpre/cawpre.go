@@ -22,8 +22,8 @@ func main() {
 	// ------------------------------------------------
 	tmpDir := "tmp"
 	appsDir := "data/apps"
-	refDir := appsDir + "/pipeline_test/ref"
-	origDataDir := appsDir + "/pipeline_test/data"
+	refDir := appsDir + "/ref"
+	origDataDir := appsDir + "/data"
 	dataDir := "data"
 
 	// ----------------------------------------------------------------------------
@@ -33,7 +33,7 @@ func main() {
 	wf := sp.NewWorkflow("caw-preproc", *maxTasks)
 
 	downloadApps := wf.NewProc("download_apps", "wget http://uppnex.se/apps.tar.gz -O {o:apps}")
-	downloadApps.SetOut("apps", dataDir+"/uppnex_apps.tar.gz")
+	downloadApps.SetOut("apps", dataDir+"/apps.tar.gz")
 
 	unTgzApps := wf.NewProc("untgz_apps", "tar -zxvf {i:tgz} -C ../"+dataDir+" && echo untar_done > {o:done}")
 	unTgzApps.SetOut("done", dataDir+"/apps/done.flag")
@@ -115,8 +115,8 @@ func main() {
 				-I {i:bamnormal} \
 				-I {i:bamtumor} \
 				-R ../`+refDir+`/human_g1k_v37_decoy.chr1.fasta \
-				-known ../`+refDir+`/1000G_phase1.indels.b37.chr1.vcf \
-				-known ../`+refDir+`/Mills_and_1000G_gold_standard.indels.b37.chr1.vcf \
+				-known ../`+refDir+`/1000G_phase1.indels.b37.chr1.vcf.gz \
+				-known ../`+refDir+`/Mills_and_1000G_gold_standard.indels.b37.chr1.vcf.gz \
 				-nt 4 \
 				-o {o:intervals}`)
 	realignCreateTargets.SetOut("intervals", tmpDir+"/tiny.intervals")
@@ -132,8 +132,8 @@ func main() {
 			-I {i:bamtumor} \
 			-R ../`+refDir+`/human_g1k_v37_decoy.chr1.fasta \
 			-targetIntervals {i:intervals} \
-			-known ../`+refDir+`/1000G_phase1.indels.b37.chr1.vcf \
-			-known ../`+refDir+`/Mills_and_1000G_gold_standard.indels.b37.chr1.vcf \
+			-known ../`+refDir+`/1000G_phase1.indels.b37.chr1.vcf.gz \
+			-known ../`+refDir+`/Mills_and_1000G_gold_standard.indels.b37.chr1.vcf.gz \
 			-nWayOut '.real.bam' \
 			&& mv *.md.real.ba* tmp/ # {o:realbamnormal} {o:realbamtumor}`) // Ugly hack to work around the lack of control induced by the -nWayOut way of specifying file name
 	realignIndels.SetPathReplace("bamnormal", "realbamnormal", ".bam", ".real.bam")
@@ -149,11 +149,11 @@ func main() {
 		// Re-calibrate
 		reCalibrate := wf.NewProc("recalibrate_"+sampleType,
 			`java -Xmx3g -Djava.io.tmpdir=../`+tmpDir+` -jar ../`+appsDir+`/gatk/GenomeAnalysisTK.jar -T BaseRecalibrator \
-				-R ../`+refDir+`/human_g1k_v37_decoy.fasta \
+				-R ../`+refDir+`/human_g1k_v37_decoy.chr1.fasta \
 				-I {i:realbam} \
-				-knownSites ../`+refDir+`/dbsnp_138.b37.chr1.vcf \
-				-knownSites ../`+refDir+`/1000G_phase1.indels.b37.chr1.vcf \
-				-knownSites ../`+refDir+`/Mills_and_1000G_gold_standard.indels.b37.chr1.vcf \
+				-knownSites ../`+refDir+`/dbsnp_138.b37.chr1.vcf.gz \
+				-knownSites ../`+refDir+`/1000G_phase1.indels.b37.chr1.vcf.gz \
+				-knownSites ../`+refDir+`/Mills_and_1000G_gold_standard.indels.b37.chr1.vcf.gz \
 				-nct 4 \
 				-l INFO \
 				-o {o:recaltable}`)
@@ -163,7 +163,7 @@ func main() {
 		// Print reads
 		printReads := wf.NewProc("print_reads_"+sampleType,
 			`java -Xmx3g -jar ../`+appsDir+`/gatk/GenomeAnalysisTK.jar -T PrintReads \
-				-R ../`+refDir+`/human_g1k_v37_decoy.fasta \
+				-R ../`+refDir+`/human_g1k_v37_decoy.chr1.fasta \
 				-nct 4 \
 				-I {i:realbam} \
 				--BQSR {i:recaltable} \
