@@ -3,10 +3,15 @@ package main // Reproduce SciPipe Case Study Workflow
 import (
 	"fmt"
 	"log"
+	"path/filepath"
 	"time"
 
 	sp "github.com/scipipe/scipipe"
 	spcomp "github.com/scipipe/scipipe/components"
+)
+
+const (
+	dataDir = "data/"
 )
 
 // The code for a virtual machine with the SciLuigi version of this workflow is
@@ -16,11 +21,13 @@ import (
 
 func main() {
 	dlWf := sp.NewWorkflow("download_jars", 2)
-	download := dlWf.NewProc("download_jars", "wget https://ndownloader.figshare.com/files/6330402 -O {o:tarball}")
-	download.SetOut("tarball", "jars.tar.gz")
-	unpack := dlWf.NewProc("unpack_jars", "mkdir {o:unpackdir} && tar -zxf {i:tarball} -C {o:unpackdir}")
-	unpack.SetOut("unpackdir", "bin")
-	unpack.In("tarball").From(download.Out("tarball"))
+	downloadJars := dlWf.NewProc("download_jars", "wget https://ndownloader.figshare.com/files/6330402 -O {o:tarball}")
+	downloadJars.SetOut("tarball", "jars.tar.gz")
+	unpackJars := dlWf.NewProc("unpack_jars", "mkdir {o:unpackdir} && tar -zxf {i:tarball} -C {o:unpackdir}")
+	unpackJars.SetOut("unpackdir", "bin")
+	unpackJars.In("tarball").From(downloadJars.Out("tarball"))
+	downloadRawData := dlWf.NewProc("download_rawdata", "wget https://raw.githubusercontent.com/pharmbio/bioimg-sciluigi-casestudy/master/roles/sciluigi_usecase/files/proj/largescale_svm/data/testrun_dataset.smi -O {o:dataset}")
+	downloadRawData.SetOut("dataset", dataDir+"testdataset.smi")
 	dlWf.Run()
 
 	crossValWF := NewCrossValidateWorkflow(4, CrossValidateWorkflowParams{
@@ -64,6 +71,10 @@ type CrossValidateWorkflowParams struct {
 	SlurmProject     string
 }
 
+// ================================================================================
+// Start Workflow definition
+// ================================================================================
+
 // NewCrossValidateWorkflow returns an initialized CrossValidateWorkflow
 func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) *CrossValidateWorkflow {
 	wf := sp.NewWorkflow("Cross Validate Workflow", maxTasks)
@@ -83,6 +94,8 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 	}
 
 	for _, replID := range replicateIds {
+		replID := replID // Create local copy of variable to avoid access to global loop variable from closures
+
 		genSign := NewGenSignFilterSubst(wf, fmt.Sprintf("gensign_%s", replID),
 			GenSignFilterSubstConf{
 				replicateID: replID,
@@ -100,18 +113,30 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 			},
 			RunModeLocal)
 		genSign.InSmiles().From(mmTestData.Out())
+
+		// Create a unique copy per run
+		createRunCopy := wf.NewProc("create_runcopy_"+params.RunID, "cp {i:orig} {o:copy} # {p:runid}")
+		createRunCopy.SetOut("copy", fmt.Sprintf("%s/{i:orig}", params.RunID))
+		createRunCopy.SetPathCustom("copy", func(t *sp.Task) string {
+			return t.Param("runid") + "/" + filepath.Base(t.InPath("orig"))
+		})
+		createRunCopy.InParam("runid").FromStr(params.RunID)
+		createRunCopy.In("orig").From(genSign.OutSignatures())
+
+		// Create a unique copy per replicate
+		createReplCopy := wf.NewProc("create_replcopy_"+replID, "cp {i:orig} {o:copy} # {p:replid}")
+		createReplCopy.SetPathCustom("copy", func(t *sp.Task) string {
+			return t.Param("replid") + "/" + filepath.Base(t.InPath("orig"))
+		})
+		createReplCopy.InParam("replid").FromStr(replID)
+		createReplCopy.In("orig").From(genSign.OutSignatures())
 	}
 	return &CrossValidateWorkflow{wf}
 }
 
-//            create_unique_run_copy = self.new_task('create_unique_run_copy_%s' % self.run_id,
-//                    CreateRunCopy,
-//                    run_id = self.run_id)
-//            create_unique_run_copy.in_file = gensign.out_signatures
-
-//            replcopy = self.new_task('replcopy_%s' % replicate_id, CreateReplicateCopy,
-//                    replicate_id=replicate_id)
-//            replcopy.in_file = create_unique_run_copy.out_copy
+// ================================================================================
+// End Workflow definition
+// ================================================================================
 
 //            for train_size in [i for i in self.train_sizes.split(',')]:
 //                samplett = self.new_task('sampletraintest_%s_%s' % (train_size, replicate_id), SampleTrainAndTest,

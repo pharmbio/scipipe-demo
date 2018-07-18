@@ -18,26 +18,16 @@ type GenSignFilterSubstConf struct {
 	slientMode  bool
 }
 
-// InSmiles takes input file in SMILES format
-func (p *GenSignFilterSubst) InSmiles() *sp.InPort {
-	return p.In("smiles")
-}
-
-// OutSignatures returns output files as text files with signatures
-func (p *GenSignFilterSubst) OutSignatures() *sp.OutPort {
-	return p.Out("signatures")
-}
-
 // NewGenSignFilterSubst returns a new GenSignFilterSubstConf process
 func NewGenSignFilterSubst(wf *sp.Workflow, name string, params GenSignFilterSubstConf, slurmInfo SlurmInfo, runMode RunMode) *GenSignFilterSubst {
-	cmd := `java -jar bin/GenerateSignatures.jar
-		-inputfile {i:smiles}
-		-threads {p:threads}
-		-minheight {p:minheight}
-		-maxheight {p:maxheight}
+	cmd := `java -jar ../bin/GenerateSignatures.jar \
+		-inputfile {i:smiles} \
+		-threads {p:threads} \
+		-minheight {p:minheight} \
+		-maxheight {p:maxheight} \
 		-outputfile {o:signatures}`
 	if params.slientMode {
-		cmd += `
+		cmd += ` \
 		-silent`
 	}
 	p := wf.NewProc(name, cmd)
@@ -51,21 +41,34 @@ func NewGenSignFilterSubst(wf *sp.Workflow, name string, params GenSignFilterSub
 	return &GenSignFilterSubst{p}
 }
 
-//# ====================================================================================================
-//
-//class UnGzipFile(sl.SlurmTask):
-//    # TARGETS
-//    in_gzipped = None
-//
-//    def out_ungzipped(self):
-//        return sl.TargetInfo(self, self.in_gzipped().path + '.ungz')
-//
-//    def run(self):
-//        self.ex(['gunzip', '-c',
-//                  self.in_gzipped().path,
-//                  '>',
-//                  self.out_ungzipped().path])
-//
+// InSmiles takes input file in SMILES format
+func (p *GenSignFilterSubst) InSmiles() *sp.InPort {
+	return p.In("smiles")
+}
+
+// OutSignatures returns output files as text files with signatures
+func (p *GenSignFilterSubst) OutSignatures() *sp.OutPort {
+	return p.Out("signatures")
+}
+
+// ====================================================================================================
+
+type CopyFile struct {
+	*sp.Process
+}
+
+func NewCopyFile(wf *sp.Workflow, name string) *CopyFile {
+	p := wf.NewProc(name, "cp {i:orig} {o:copy}")
+	return &CopyFile{p}
+}
+
+func (p *CopyFile) InOrig() *sp.InPort {
+	return p.In("orig")
+}
+func (p *CopyFile) OutCopy() *sp.OutPort {
+	return p.Out("copy")
+}
+
 //# ====================================================================================================
 //
 //class CreateRunCopy(sl.Task):
@@ -90,6 +93,21 @@ func NewGenSignFilterSubst(wf *sp.Workflow, name string, params GenSignFilterSub
 //# ====================================================================================================
 //
 //class CreateReplicateCopy(sl.Task):
+//
+//class UnGzipFile(sl.SlurmTask):
+//    # TARGETS
+//    in_gzipped = None
+//
+//    def out_ungzipped(self):
+//        return sl.TargetInfo(self, self.in_gzipped().path + '.ungz')
+//
+//    def run(self):
+//        self.ex(['gunzip', '-c',
+//                  self.in_gzipped().path,
+//                  '>',
+//                  self.out_ungzipped().path])
+//
+//# ====================================================================================================
 //
 //    # TASK PARAMETERS
 //    replicate_id = luigi.Parameter()
