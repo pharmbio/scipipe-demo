@@ -1,28 +1,16 @@
 package main // Reproduce SciPipe Case Study Workflow
 
 import (
-	"github.com/scipipe/scipipe"
+	"fmt"
+
+	sp "github.com/scipipe/scipipe"
+	spcomp "github.com/scipipe/scipipe/components"
 )
 
-//
-// The code for this virtual machine is available [here](https://github.com/pharmbio/bioimg-sciluigi-casestudy), and the direct link to the code for this notebook is available [here](https://github.com/pharmbio/bioimg-sciluigi-casestudy/blob/master/roles/sciluigi_usecase/files/proj/largescale_svm/wffindcost.ipynb).
-//
-// How to run
-//
-//- To run the workflow, click: "Cell > Run All" in the menu above!
-//  - Note that running the full workflow takes a long time. On a Intel i5 dual core laptop, it could take up to ~45 minutes to finish.
-//- For a visualization of the progress, see the "Luigi Task Visualizer" browser tab.
-//  - If it is not open, you can also access it via [this link](http://localhost:8082/static/visualiser/index.html#)
-//- To see the dependency graph for the CrossValidate workflow in the Luigi Task Visualizer interface:
-//  - Click the "CrossValidateWorkflow" task in the left menu
-//  - Then click the little blue dependency graph icon in the "Actions" column, to the far right on the page.
-//  - **Note:** You might need to refresh the browser (Ctrl + R, or Cmd + R), to see the latest state of the workflow.
-//
-// Caveats
-//
-//- Please note that in order to re-run the workflow full, you need to go "Kernel > Restart", or "Kernel > Restart & Clear all output".
-//  - This is because of how Luigi works, by defining tasks as classes, and that if reloading a cell in Jupyter, that would mean re-declaring an already declared class.
-//  - Alternatively, one can just re-start any cells containing only execution code (no class definitions).
+// The code for a virtual machine with the SciLuigi version of this workflow is
+// available [here](https://github.com/pharmbio/bioimg-sciluigi-casestudy), and
+// the direct link to the code for this notebook is available
+// [here](https://github.com/pharmbio/bioimg-sciluigi-casestudy/blob/master/roles/sciluigi_usecase/files/proj/largescale_svm/wffindcost.ipynb).
 
 func main() {
 	crossValWF := NewCrossValidateWorkflow(4, CrossValidateWorkflowParams{})
@@ -32,7 +20,7 @@ func main() {
 // CrossValidateWorkflow finds the optimal SVM cost values via a grid-search,
 // with cross-validation
 type CrossValidateWorkflow struct {
-	*scipipe.Workflow
+	*sp.Workflow
 }
 
 // CrossValidateWorkflowParams is a container for parameters to
@@ -55,67 +43,43 @@ type CrossValidateWorkflowParams struct {
 
 // NewCrossValidateWorkflow returns an initialized CrossValidateWorkflow
 func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) *CrossValidateWorkflow {
-	bw := scipipe.NewWorkflow("Cross Validate Workflow", maxTasks)
-	return &CrossValidateWorkflow{bw}
+	wf := sp.NewWorkflow("Cross Validate Workflow", maxTasks)
+
+	mmTestData := spcomp.NewFileSource(
+		wf,
+		"mmTestData",
+		fmt.Sprintf("data/%s.smi", params.DatasetName))
+
+	//procs := []sp.WorkflowProcess{}
+	//lowestRMSDs := []float64{}
+	//mainWFRunners := []*sp.Workflow{}
+
+	replicateIds := params.ReplicateIDs
+	if params.ReplicateID != "" {
+		replicateIds = []string{params.ReplicateID}
+	}
+
+	for _, replID := range replicateIds {
+		genSign := NewGenSignFilterSubst(wf, fmt.Sprintf("gensign_%s", replID), GenSignFilterSubstConf{
+			replicateID: replID,
+			threadsCnt:  8,
+			minHeight:   params.MinHeight,
+			maxHeight:   params.MaxHeight,
+		})
+		genSign.InSmiles().From(mmTestData.Out())
+
+		//                    slurminfo = sciluigi.SlurmInfo(
+		//                        runmode=runmode,
+		//                        project=self.slurm_project,
+		//                        partition='core',
+		//                        cores='8',
+		//                        time='1:00:00',
+		//                        jobname='mmgensign',
+		//                        threads='8'
+		//                    ))
+	}
+	return &CrossValidateWorkflow{wf}
 }
-
-//class CrossValidateWorkflow(sciluigi.WorkflowTask):
-//    '''
-//    Find the optimal SVM cost values via a grid-search, with cross-validation
-//    '''
-//
-//    # PARAMETERS
-//    dataset_name = luigi.Parameter(default='testrun_dataset')
-//    run_id = luigi.Parameter('test_run_001')
-//    replicate_id = luigi.Parameter('')
-//    replicate_ids = luigi.Parameter(default='r1,r2,r3')
-//    folds_count = luigi.IntParameter(default=10)
-//    min_height = luigi.Parameter(default='1')
-//    max_height = luigi.Parameter(default='3')
-//    test_size = luigi.Parameter('1000')
-//    train_sizes = luigi.Parameter(default='500,1000,2000,4000,8000')
-//    lin_type = luigi.Parameter(default='12') # 12, See: https://www.csie.ntu.edu.tw/~cjlin/liblinear/FAQ.html
-//    randomdatasize_mb = luigi.IntParameter(default='10')
-//    runmode = 'local'
-//    slurm_project = 'N/A'
-//
-//    def workflow(self):
-//        if self.runmode == 'local':
-//            runmode = sciluigi.RUNMODE_LOCAL
-//        elif self.runmode == 'hpc':
-//            runmode = sciluigi.RUNMODE_HPC
-//        elif self.runmode == 'mpi':
-//            runmode = sciluigi.RUNMODE_MPI
-//        else:
-//            raise Exception('Runmode is none of local, hpc, nor mpi. Please fix and try again!')
-//
-
-//        mmtestdata = self.new_task('mmtestdata', ExistingSmiles,
-//                replicate_id='na',
-//                dataset_name=self.dataset_name)
-//        tasks = {}
-//        lowest_rmsds = []
-//        mainwfruns = []
-//        if self.replicate_id != '':
-//            replicate_ids = [self.replicate_id]
-//        else:
-//            replicate_ids = [i for i in self.replicate_ids.split(',')]
-//        for replicate_id in replicate_ids:
-//            tasks[replicate_id] = {}
-//            gensign = self.new_task('gensign_%s' % replicate_id, GenerateSignaturesFilterSubstances,
-//                    replicate_id=replicate_id,
-//                    min_height = self.min_height,
-//                    max_height = self.max_height,
-//                    slurminfo = sciluigi.SlurmInfo(
-//                        runmode=runmode,
-//                        project=self.slurm_project,
-//                        partition='core',
-//                        cores='8',
-//                        time='1:00:00',
-//                        jobname='mmgensign',
-//                        threads='8'
-//                    ))
-//            gensign.in_smiles = mmtestdata.out_smiles
 
 //            create_unique_run_copy = self.new_task('create_unique_run_copy_%s' % self.run_id,
 //                    CreateRunCopy,

@@ -1,60 +1,53 @@
 package main
 
 import (
-	"github.com/scipipe/scipipe"
-	"github.com/scipipe/scipipe/components"
+	sp "github.com/scipipe/scipipe"
 )
 
-//class ExistingSmiles(sl.ExternalTask):
-//    '''External task for getting hand on existing smiles files'''
-//
-//    # PARAMETERS
-//    dataset_name = luigi.Parameter()
-//
-//    # TARGETS
-//    def out_smiles(self):
-//        datapath = os.path.abspath('./data')
-//        filename = self.dataset_name + '.smi'
-//        outfile_path = os.path.join(datapath, filename)
-//        smilestgt = sl.TargetInfo(self, outfile_path)
-//        return smilestgt
-//
-//# ====================================================================================================
+// ====================================================================================================
 
-type ExistingSmiles struct {
-	BaseProcess scipipe.WorkflowProcess
+type GenSignFilterSubst struct {
+	*sp.Process
 }
 
-func NewExistingSmiles(wf *scipipe.Workflow, name string) *ExistingSmiles {
-	bp := components.NewFileSource(wf, name, "")
-	return &ExistingSmiles{BaseProcess: bp}
+type GenSignFilterSubstConf struct {
+	replicateID string
+	threadsCnt  int
+	minHeight   int
+	maxHeight   int
+	slientMode  bool
 }
 
-//class GenerateSignaturesFilterSubstances(sl.SlurmTask):
-//
-//    # TASK PARAMETERS
-//    min_height = luigi.IntParameter()
-//    max_height = luigi.IntParameter()
-//    silent_mode = luigi.BooleanParameter(default=True)
-//
-//    # INPUT TARGETS
-//    in_smiles = None
-//
-//    # DEFINE OUTPUTS
-//    def out_signatures(self):
-//        return sl.TargetInfo(self, self.in_smiles().path + '.h%d_%d.sign' % (self.min_height, self.max_height))
-//
-//    # WHAT THE TASK DOES
-//    def run(self):
-//        self.ex(['java', '-jar', 'bin/GenerateSignatures.jar',
-//                '-inputfile', self.in_smiles().path,
-//                '-threads', self.slurminfo.threads,
-//                '-minheight', str(self.min_height),
-//                '-maxheight', str(self.max_height),
-//                '-outputfile', self.out_signatures().path,
-//                '-silent' if self.silent_mode else ''])
-//        self.ex_local(['touch', self.out_signatures().path])
-//
+// InSmiles takes input file in SMILES format
+func (p *GenSignFilterSubst) InSmiles() *sp.InPort {
+	return p.In("smiles")
+}
+
+// OutSignatures returns output files as text files with signatures
+func (p *GenSignFilterSubst) OutSignatures() *sp.OutPort {
+	return p.Out("signatures")
+}
+
+// NewGenSignFilterSubst returns a new GenSignFilterSubstConf process
+func NewGenSignFilterSubst(wf *sp.Workflow, name string, params GenSignFilterSubstConf) *GenSignFilterSubst {
+	cmd := `java -jar bin/GenerateSignatures.jar
+		-inputfile {i:smiles}
+		-threads {p:threads}
+		-minheight {p:minheight}
+		-maxheight {p:maxheight}
+		-outputfile {o:signatures}`
+	if params.slientMode {
+		cmd += `
+		-silent`
+	}
+	p := wf.NewProc(name, cmd)
+	p.InParam("threads").FromInt(params.threadsCnt)
+	p.InParam("minheight").FromInt(params.minHeight)
+	p.InParam("maxheight").FromInt(params.maxHeight)
+	p.SetOut("signatures", "{i:smiles}.{p:minheight}_{p:maxheight}.sign")
+	return &GenSignFilterSubst{p}
+}
+
 //# ====================================================================================================
 //
 //class UnGzipFile(sl.SlurmTask):
