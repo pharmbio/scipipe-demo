@@ -25,17 +25,17 @@ type SlurmInfo struct {
 	Project   string
 	Partition PartitionType
 	Cores     int
-	RunTime   time.Duration
+	Time      time.Duration
 	JobName   string
 	Threads   int
 }
 
-func (si *SlurmInfo) AsSallocString() string {
+func (si SlurmInfo) AsSallocString() string {
 	return fmt.Sprintf("salloc -A %s -p %s -n %d -t %s -J %s srun -n 1 -c %d ",
 		si.Project,
 		si.Partition,
 		si.Cores,
-		si.RunTime,
+		fmtDuration(si.Time),
 		si.JobName,
 		si.Threads)
 }

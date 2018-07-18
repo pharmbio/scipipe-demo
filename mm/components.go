@@ -29,7 +29,7 @@ func (p *GenSignFilterSubst) OutSignatures() *sp.OutPort {
 }
 
 // NewGenSignFilterSubst returns a new GenSignFilterSubstConf process
-func NewGenSignFilterSubst(wf *sp.Workflow, name string, params GenSignFilterSubstConf) *GenSignFilterSubst {
+func NewGenSignFilterSubst(wf *sp.Workflow, name string, params GenSignFilterSubstConf, slurmInfo SlurmInfo, runMode RunMode) *GenSignFilterSubst {
 	cmd := `java -jar bin/GenerateSignatures.jar
 		-inputfile {i:smiles}
 		-threads {p:threads}
@@ -45,6 +45,9 @@ func NewGenSignFilterSubst(wf *sp.Workflow, name string, params GenSignFilterSub
 	p.InParam("minheight").FromInt(params.minHeight)
 	p.InParam("maxheight").FromInt(params.maxHeight)
 	p.SetOut("signatures", "{i:smiles}.{p:minheight}_{p:maxheight}.sign")
+	if runMode == RunModeHPC {
+		p.Prepend = slurmInfo.AsSallocString()
+	}
 	return &GenSignFilterSubst{p}
 }
 

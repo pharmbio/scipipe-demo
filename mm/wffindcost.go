@@ -2,6 +2,8 @@ package main // Reproduce SciPipe Case Study Workflow
 
 import (
 	"fmt"
+	"log"
+	"time"
 
 	sp "github.com/scipipe/scipipe"
 	spcomp "github.com/scipipe/scipipe/components"
@@ -13,7 +15,28 @@ import (
 // [here](https://github.com/pharmbio/bioimg-sciluigi-casestudy/blob/master/roles/sciluigi_usecase/files/proj/largescale_svm/wffindcost.ipynb).
 
 func main() {
-	crossValWF := NewCrossValidateWorkflow(4, CrossValidateWorkflowParams{})
+	dlWf := sp.NewWorkflow("download_jars", 2)
+	download := dlWf.NewProc("download_jars", "wget https://ndownloader.figshare.com/files/6330402 -O {o:tarball}")
+	download.SetOut("tarball", "jars.tar.gz")
+	unpack := dlWf.NewProc("unpack_jars", "mkdir {o:unpackdir} && tar -zxf {i:tarball} -C {o:unpackdir}")
+	unpack.SetOut("unpackdir", "bin")
+	unpack.In("tarball").From(download.Out("tarball"))
+	dlWf.Run()
+
+	crossValWF := NewCrossValidateWorkflow(4, CrossValidateWorkflowParams{
+		DatasetName:      "testdataset",
+		RunID:            "testrun",
+		ReplicateID:      "r1",
+		FoldsCount:       10,
+		MinHeight:        1,
+		MaxHeight:        3,
+		TestSize:         1000,
+		TrainSizes:       []int{500, 1000, 2000, 4000, 8000},
+		LinType:          12,
+		RandomDataSizeMB: 10,
+		Runmode:          RunModeLocal,
+		SlurmProject:     "N/A",
+	})
 	crossValWF.Run()
 }
 
@@ -37,7 +60,7 @@ type CrossValidateWorkflowParams struct {
 	TrainSizes       []int
 	LinType          int
 	RandomDataSizeMB int
-	Runmode          string
+	Runmode          RunMode
 	SlurmProject     string
 }
 
@@ -60,23 +83,23 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 	}
 
 	for _, replID := range replicateIds {
-		genSign := NewGenSignFilterSubst(wf, fmt.Sprintf("gensign_%s", replID), GenSignFilterSubstConf{
-			replicateID: replID,
-			threadsCnt:  8,
-			minHeight:   params.MinHeight,
-			maxHeight:   params.MaxHeight,
-		})
+		genSign := NewGenSignFilterSubst(wf, fmt.Sprintf("gensign_%s", replID),
+			GenSignFilterSubstConf{
+				replicateID: replID,
+				threadsCnt:  8,
+				minHeight:   params.MinHeight,
+				maxHeight:   params.MaxHeight,
+			},
+			SlurmInfo{
+				Project:   params.SlurmProject,
+				Partition: PartitionCore,
+				Cores:     8,
+				Time:      parseDuration("1h"),
+				JobName:   "mmgensign",
+				Threads:   8,
+			},
+			RunModeLocal)
 		genSign.InSmiles().From(mmTestData.Out())
-
-		//                    slurminfo = sciluigi.SlurmInfo(
-		//                        runmode=runmode,
-		//                        project=self.slurm_project,
-		//                        partition='core',
-		//                        cores='8',
-		//                        time='1:00:00',
-		//                        jobname='mmgensign',
-		//                        threads='8'
-		//                    ))
 	}
 	return &CrossValidateWorkflow{wf}
 }
@@ -476,3 +499,11 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 //
 //show() # Display the plot
 //
+
+func parseDuration(durStr string) time.Duration {
+	dur, err := time.ParseDuration(durStr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return dur
+}
