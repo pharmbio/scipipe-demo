@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"time"
 )
 
@@ -50,4 +51,17 @@ func fmtDuration(t time.Duration) string {
 	t -= m * time.Minute
 	s := t / time.Second
 	return fmt.Sprintf("%d-%02d:%02d:%02d", d, h, m, s)
+}
+
+func parseDuration(durStr string) time.Duration {
+	dur, err := time.ParseDuration(durStr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return dur
+}
+
+// fs is a short for fmt.Sprintf
+func fs(pat string, v ...interface{}) string {
+	return fmt.Sprintf(pat, v...)
 }

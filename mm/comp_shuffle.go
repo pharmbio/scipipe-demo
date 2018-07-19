@@ -22,7 +22,7 @@ func NewShuffleLines(wf *sp.Workflow, name string, params ShuffleLinesConf) *Shu
 		`{i:in} ` +
 		`> {o:shuffled}`
 	p := wf.NewProc(name, cmd)
-	p.SetOut("out", "{i:in}.shuf")
+	p.SetOut("shuffled", "{i:in}.shuf")
 	return &ShuffleLines{p}
 }
 

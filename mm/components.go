@@ -132,44 +132,6 @@ package main
 //        with self.out_lowest().open('w') as lowestfile:
 //            sl.util.dict_to_recordfile(lowestfile, lowestrec)
 
-//class CreateFolds(sl.SlurmTask):
-//
-//    # TASK PARAMETERS
-//    folds_count = luigi.IntParameter()
-//    fold_index = luigi.IntParameter()
-//
-//    # TARGETS
-//    in_dataset = None
-//    in_linecount = None
-//
-//    def out_testdata(self):
-//        return sl.TargetInfo(self, self.in_dataset().path + '.fld{0:02}_tst'.format(self.fold_index))
-//
-//    def out_traindata(self):
-//        return sl.TargetInfo(self, self.in_dataset().path + '.fld{0:02}_trn'.format(self.fold_index))
-//
-//    def run(self):
-//        with self.in_linecount().open() as linecntfile:
-//            linecnt = int(linecntfile.read())
-//
-//        linesperfold = int(math.floor(linecnt / self.folds_count))
-//        tst_start = self.fold_index * linesperfold
-//        tst_end = (self.fold_index + 1) * linesperfold
-//
-//        # CREATE TEST FOLD
-//        self.ex(['awk',
-//                 '"NR >= %d && NR <= %d { print }"' % (tst_start, tst_end),
-//                 self.in_dataset().path,
-//                 '>',
-//                 self.out_testdata().path])
-//
-//        # CREATE TRAIN FOLD
-//        self.ex(['awk',
-//                 '"NR < %d || NR > %d { print }"' % (tst_start, tst_end),
-//                 self.in_dataset().path,
-//                 '>',
-//                 self.out_traindata().path])
-
 //class SelectPercentIndexValue(sl.Task):
 //
 //    # TASK PARAMETERS

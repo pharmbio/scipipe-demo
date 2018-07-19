@@ -10,10 +10,7 @@ package main
 // --------------------------------------------------------------------------------
 
 import (
-	"fmt"
-	"log"
 	"path/filepath"
-	"time"
 
 	sp "github.com/scipipe/scipipe"
 	spcomp "github.com/scipipe/scipipe/components"
@@ -43,6 +40,7 @@ func main() {
 		MaxHeight:        3,
 		TestSize:         1000,
 		TrainSizes:       []int{500, 1000, 2000, 4000, 8000},
+		CostVals:         []float64{0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 1, 2, 3, 4, 5},
 		LinType:          12,
 		RandomDataSizeMB: 10,
 		Runmode:          RunModeLocal,
@@ -70,6 +68,7 @@ type CrossValidateWorkflowParams struct {
 	MaxHeight        int
 	TestSize         int
 	TrainSizes       []int
+	CostVals         []float64
 	LinType          int
 	RandomDataSizeMB int
 	Runmode          RunMode
@@ -183,9 +182,41 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 			shufTrain := NewShuffleLines(wf, fs("shuftrain_%d_%s", trainSize, replID), ShuffleLinesConf{})
 			shufTrain.InData().From(gunzipSparseTrain.Out("ungzipped"))
 			shufTrain.InRandBytes().From(genRandBytes.OutRandBytes())
+
+			// ------------------------------------------------------------------------
+			// Loop over folds
+			// ------------------------------------------------------------------------
+			for foldIdx := 1; foldIdx <= params.FoldsCount; foldIdx++ {
+				createFolds := NewCreateFolds(wf, fs("create_fold%02d_%d_%s", foldIdx, trainSize, replID),
+					CreateFoldsConf{
+						FoldIdx:  foldIdx,
+						FoldsCnt: params.FoldsCount,
+						// Seed?
+					})
+				createFolds.InData().From(shufTrain.OutShuffled())
+				createFolds.InLineCnt().From(cntTrainData.OutLineCount())
+
+				//for _, cost := range params.CostVals {
+				// train_lin = self.new_task('trainlin_fold_%d_cost_%s_%s_%s' % (fold_idx, cost, train_size, replicate_id), TrainLinearModel,
+				//         replicate_id = replicate_id,
+				//         lin_type = self.lin_type,
+				//         lin_cost = cost,
+				// train_lin.in_traindata = create_folds.out_traindata
+
+				// pred_lin = self.new_task('predlin_fold_%d_cost_%s_%s_%s' % (fold_idx, cost, train_size, replicate_id), PredictLinearModel,
+				//         replicate_id = replicate_id,
+				// pred_lin.in_model = train_lin.out_model
+				// pred_lin.in_sparse_testdata = create_folds.out_testdata
+
+				// assess_lin = self.new_task('assesslin_fold_%d_cost_%s_%s_%s' % (fold_idx, cost, train_size, replicate_id), AssessLinearRMSD,
+				//         lin_cost = cost,
+				// assess_lin.in_model = train_lin.out_model
+				// assess_lin.in_sparse_testdata = create_folds.out_testdata
+				// assess_lin.in_prediction = pred_lin.out_prediction
+				//}
+			}
 		}
 	}
-
 	return &CrossValidateWorkflow{wf}
 }
 
@@ -193,36 +224,8 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 // End: Main Workflow definition
 // ================================================================================
 
-//                costseq = ['0.0001', '0.0005', '0.001', '0.005', '0.01', '0.05', '0.1', '0.25', '0.5', '0.75', '1', '2', '3', '4', '5' ] + [str(int(10**p)) for p in xrange(1,12)]
-//                # Branch the workflow into one branch per fold
-//                for fold_idx in xrange(self.folds_count):
-//                    tasks[replicate_id][fold_idx] = {}
-//                    # Init tasks
-//                    create_folds = self.new_task('create_fold%02d_%s_%s' % (fold_idx, train_size, replicate_id), CreateFolds,
-//                            fold_index = fold_idx,
-//                            folds_count = self.folds_count,
-//                            seed = 0.637,
 //                    for cost in costseq:
 //                        tasks[replicate_id][fold_idx][cost] = {}
-//                        create_folds.in_dataset = shuffleTrain.out_shuffled
-//                        create_folds.in_linecount = cntlines.out_linecount
-
-//                        train_lin = self.new_task('trainlin_fold_%d_cost_%s_%s_%s' % (fold_idx, cost, train_size, replicate_id), TrainLinearModel,
-//                                replicate_id = replicate_id,
-//                                lin_type = self.lin_type,
-//                                lin_cost = cost,
-//                        train_lin.in_traindata = create_folds.out_traindata
-
-//                        pred_lin = self.new_task('predlin_fold_%d_cost_%s_%s_%s' % (fold_idx, cost, train_size, replicate_id), PredictLinearModel,
-//                                replicate_id = replicate_id,
-//                        pred_lin.in_model = train_lin.out_model
-//                        pred_lin.in_sparse_testdata = create_folds.out_testdata
-
-//                        assess_lin = self.new_task('assesslin_fold_%d_cost_%s_%s_%s' % (fold_idx, cost, train_size, replicate_id), AssessLinearRMSD,
-//                                lin_cost = cost,
-//                        assess_lin.in_model = train_lin.out_model
-//                        assess_lin.in_sparse_testdata = create_folds.out_testdata
-//                        assess_lin.in_prediction = pred_lin.out_prediction
 
 //                        tasks[replicate_id][fold_idx][cost] = {}
 //                        tasks[replicate_id][fold_idx][cost]['create_folds'] = create_folds
@@ -312,165 +315,3 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 //                ' --runmode=%s' % self.runmode)
 //        with self.out_done().open('w') as donefile:
 //            donefile.write('Done!\n')
-//
-//
-//# ## Execute the workflow
-//#
-//# Execute the workflow locally (using the luigi daemon which runs in the background), starting with the `CrossValidateWorkflow` workflow class.
-//
-//# In[ ]:
-//
-//print time.strftime('%Y-%m-%d %H:%M:%S: ') + 'Workflow started ...'
-//sciluigi.run(cmdline_args=['--scheduler-host=localhost', '--workers=4'], main_task_cls=CrossValidateWorkflow)
-//print time.strftime('%Y-%m-%d %H:%M:%S: ') + 'Workflow finished!'
-//
-//
-//# ## Parse result data from workflow into python dicts
-//#
-//# This step does not produce any output, but is done as a preparation for the subsequent printing of values, and plotting.
-//
-//# In[ ]:
-//
-//import csv
-//from matplotlib.pyplot import *
-//
-//merged_report_filepath = 'data/test_run_001_merged_report.csv'
-//replicate_ids = ['r1','r2','r3']
-//rowdicts = []
-//
-//
-//# Collect data in one dict per row in the csv file
-//with open(merged_report_filepath) as infile:
-//    csvrd = csv.reader(infile, delimiter=',')
-//    for rid, row in enumerate(csvrd):
-//        if rid == 0:
-//            headerrow = row
-//        else:
-//            rowdicts.append({headerrow[i]:v for i, v in enumerate(row)})
-//
-//# Collect the training sizes
-//train_sizes = []
-//for r  in rowdicts:
-//    if r['replicate_id'] == 'r1':
-//        train_sizes.append(r['train_size'])
-//
-//# Collect the training times, RMSD- and (LIBLINEAR) Cost values
-//train_times = {}
-//rmsd_values = {}
-//cost_values = {}
-//for repl_id in replicate_ids:
-//    train_times[repl_id] = []
-//    rmsd_values[repl_id] = []
-//    cost_values[repl_id] = []
-//    for r in rowdicts:
-//        if r['replicate_id'] == repl_id:
-//            train_times[repl_id].append(r['train_time_sec'])
-//            rmsd_values[repl_id].append(r['rmsd'])
-//            cost_values[repl_id].append(r['lin_cost'])
-//
-//# Calculate average values for the training time
-//train_times_avg = []
-//for i in range(0, len(train_times['r1'])):
-//    train_times_avg.append(0.0)
-//    for repl_id in replicate_ids:
-//        train_times_avg[i] += float(train_times[repl_id][i])
-//    train_times_avg[i] =  train_times_avg[i] / float(len(replicate_ids))
-//
-//# Calculate average values for the RMSD values
-//rmsd_values_avg = []
-//for i in range(0, len(rmsd_values['r1'])):
-//    rmsd_values_avg.append(0.0)
-//    for repl_id in replicate_ids:
-//        rmsd_values_avg[i] += float(rmsd_values[repl_id][i])
-//    rmsd_values_avg[i] =  rmsd_values_avg[i] / float(len(replicate_ids))
-//
-//
-//# ## Print values (Train sizes, train times and RMSD)
-//
-//# In[ ]:
-//
-//print "-"*60
-//print 'Train sizes:        ' + ', '.join(train_sizes) + ' molecules'
-//print ''
-//print 'RMSD values: '
-//for rid in range(1,4):
-//    print '      Replicate %d: ' % rid + ', '.join(['%.2f' % float(v) for v in rmsd_values['r%d' % rid]])
-//print ''
-//print 'Train times: '
-//for rid in range(1,4):
-//    print '      Replicate %d: ' % rid + ', '.join(train_times['r%d' % rid]) + ' seconds'
-//print ''
-//print 'Cost values: '
-//for rid in range(1,4):
-//    print '      Replicate %d: ' % rid + ', '.join(cost_values['r%d' % rid])
-//print ''
-//print 'RMSD values (avg): ' + ', '.join(['%.2f' % x for x in rmsd_values_avg])
-//print 'Train times (avg): ' + ', '.join(['%.2f' % x for x in train_times_avg]) + ' seconds'
-//print "-"*60
-//
-//
-//# ## Plot train time and RMSD against training size
-//
-//# In[ ]:
-//
-//# Initialize plotting figure
-//fig = figure()
-//
-//# Set up subplot for RMSD values
-//subpl1 = fig.add_subplot(1,1,1)
-//# x-axis
-//xticks = [500,1000,2000,4000,8000]
-//subpl1.set_xscale('log')
-//subpl1.set_xlim([500,8000])
-//subpl1.set_xticks(ticks=xticks)
-//subpl1.set_xticklabels([str(l) for l in xticks])
-//subpl1.set_xlabel('Training set size (number of molecules)')
-//# y-axis
-//subpl1.set_ylim([0,1])
-//subpl1.set_ylabel('RMSD for test prediction')
-//# plot
-//subpl1.plot(train_sizes,
-//     rmsd_values_avg,
-//     label='RMSD for test prediction',
-//     marker='.',
-//     color='k',
-//     linestyle='-')
-//
-//# Set up subplot for training times
-//subpl2 = subpl1.twinx()
-//# y-axis
-//yticks = [0.01,0.02,0.03,0.05,0.1,0.2,0.3,0.4,0.5]
-//subpl2.set_ylim([0.01,0.5])
-//subpl2.set_yscale('log')
-//subpl2.set_yticks(ticks=yticks)
-//subpl2.set_yticklabels([str(int(l*1000)) for l in yticks])
-//subpl2.set_ylabel('Training time (milliseconds)')
-//subpl2.tick_params(axis='y', colors='r')
-//subpl2.yaxis.label.set_color('r')
-//subpl2.spines['right'].set_color('red')
-//# plot
-//subpl2.plot(train_sizes,
-//     train_times_avg,
-//     label='Training time (seconds)',
-//     marker='.',
-//     color='r',
-//     linestyle='-')
-//
-//subpl1.legend(loc='upper left', fontsize=9)
-//subpl2.legend(bbox_to_anchor=(0, 0.9), loc='upper left', fontsize=9)
-//
-//show() # Display the plot
-//
-
-func parseDuration(durStr string) time.Duration {
-	dur, err := time.ParseDuration(durStr)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return dur
-}
-
-// fs is a short for fmt.Sprintf
-func fs(pat string, v ...interface{}) string {
-	return fmt.Sprintf(pat, v...)
-}
