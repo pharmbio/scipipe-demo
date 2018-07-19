@@ -263,39 +263,6 @@ package main
 //                    merged_rows.append(line)
 //        with self.out_merged_report().open('w') as outfile:
 //            outfile.write(''.join(merged_rows))
-
-// ================================================================================
-// TEMPLATE
-// ================================================================================
-
-// // REPLACETHIS does blabla ...
-// type REPLACETHIS struct {
-// 	*sp.Process
-// }
-//
-// // REPLACETHISConf contains parameters for initializing a
-// // REPLACETHIS process
-// type REPLACETHISConf struct {
-// }
-//
-// // NewREPLACETHIS returns a new REPLACETHIS process
-// func NewREPLACETHIS(wf *sp.Workflow, name string, params REPLACETHISConf) *REPLACETHIS {
-// 	cmd := ``
-// 	p := wf.NewProc(name, cmd)
-// 	p.SetOut("out", "out.txt")
-// 	return &REPLACETHIS{p}
-// }
-//
-// // InInfile returns the Infile in-port
-// func (p *REPLACETHIS) InInfile() *sp.InPort {
-// 	return p.In("in")
-// }
-//
-// // OutOutfile returns the Outfile out-port
-// func (p *REPLACETHIS) OutOutfile() *sp.OutPort {
-// 	return p.Out("out")
-// }
-
 //class MergeOrigAndPredValues(sl.Task):
 //    # TARGETS
 //    in_original_dataset = lambda: sl.TargetInfo(None, None)
@@ -310,35 +277,6 @@ package main
 //                with self.out_merged().open('w') as outfile:
 //                    for orig, pred in zip(origfile, predfile):
 //                        outfile.write(orig.split(' ')[0] + ', ' + pred + '\n')
-
-// // REPLACETHIS does blabla ...
-// type REPLACETHIS struct {
-// 	*sp.Process
-// }
-//
-// // REPLACETHISConf contains parameters for initializing a
-// // REPLACETHIS process
-// type REPLACETHISConf struct {
-// }
-//
-// // NewREPLACETHIS returns a new REPLACETHIS process
-// func NewREPLACETHIS(wf *sp.Workflow, name string, params REPLACETHISConf) *REPLACETHIS {
-// 	cmd := ``
-// 	p := wf.NewProc(name, cmd)
-// 	p.SetOut("out", "out.txt")
-// 	return &REPLACETHIS{p}
-// }
-//
-// // InInfile returns the Infile in-port
-// func (p *REPLACETHIS) InInfile() *sp.InPort {
-// 	return p.In("in")
-// }
-//
-// // OutOutfile returns the Outfile out-port
-// func (p *REPLACETHIS) OutOutfile() *sp.OutPort {
-// 	return p.Out("out")
-// }
-
 //class MergedDataReport(sl.Task):
 //    run_id = luigi.Parameter()
 //
@@ -358,38 +296,6 @@ package main
 //                    merged_rows.append(line)
 //        with self.out_merged_report().open('w') as outfile:
 //            outfile.write(''.join(merged_rows))
-
-// ================================================================================
-// TEMPLATE
-// ================================================================================
-
-// // REPLACETHIS does blabla ...
-// type REPLACETHIS struct {
-// 	*sp.Process
-// }
-//
-// // REPLACETHISConf contains parameters for initializing a
-// // REPLACETHIS process
-// type REPLACETHISConf struct {
-// }
-//
-// // NewREPLACETHIS returns a new REPLACETHIS process
-// func NewREPLACETHIS(wf *sp.Workflow, name string, params REPLACETHISConf) *REPLACETHIS {
-// 	cmd := ``
-// 	p := wf.NewProc(name, cmd)
-// 	p.SetOut("out", "out.txt")
-// 	return &REPLACETHIS{p}
-// }
-//
-// // InInfile returns the Infile in-port
-// func (p *REPLACETHIS) InInfile() *sp.InPort {
-// 	return p.In("in")
-// }
-//
-// // OutOutfile returns the Outfile out-port
-// func (p *REPLACETHIS) OutOutfile() *sp.OutPort {
-// 	return p.Out("out")
-// }
 
 //class PlotCSV(sl.Task):
 //    # TARGETS
@@ -447,34 +353,6 @@ package main
 //        # Remove the temporary R script
 //        self.ex_local(['rm',
 //                       tempscriptpath])
-
-// // REPLACETHIS does blabla ...
-// type REPLACETHIS struct {
-// 	*sp.Process
-// }
-//
-// // REPLACETHISConf contains parameters for initializing a
-// // REPLACETHIS process
-// type REPLACETHISConf struct {
-// }
-//
-// // NewREPLACETHIS returns a new REPLACETHIS process
-// func NewREPLACETHIS(wf *sp.Workflow, name string, params REPLACETHISConf) *REPLACETHIS {
-// 	cmd := ``
-// 	p := wf.NewProc(name, cmd)
-// 	p.SetOut("out", "out.txt")
-// 	return &REPLACETHIS{p}
-// }
-//
-// // InInfile returns the Infile in-port
-// func (p *REPLACETHIS) InInfile() *sp.InPort {
-// 	return p.In("in")
-// }
-//
-// // OutOutfile returns the Outfile out-port
-// func (p *REPLACETHIS) OutOutfile() *sp.OutPort {
-// 	return p.Out("out")
-// }
 
 //class MergedDataReport(sl.Task):
 //    run_id = luigi.Parameter()
