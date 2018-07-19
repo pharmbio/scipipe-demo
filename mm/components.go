@@ -1,9 +1,13 @@
 package main
 
 import (
+	"fmt"
+
 	sp "github.com/scipipe/scipipe"
 )
 
+// ====================================================================================================
+// GenSignFilterSubst
 // ====================================================================================================
 
 type GenSignFilterSubst struct {
@@ -19,7 +23,7 @@ type GenSignFilterSubstConf struct {
 }
 
 // NewGenSignFilterSubst returns a new GenSignFilterSubstConf process
-func NewGenSignFilterSubst(wf *sp.Workflow, name string, params GenSignFilterSubstConf, slurmInfo SlurmInfo, runMode RunMode) *GenSignFilterSubst {
+func NewGenSignFilterSubst(wf *sp.Workflow, name string, params GenSignFilterSubstConf) *GenSignFilterSubst {
 	cmd := `java -jar ../bin/GenerateSignatures.jar \
 		-inputfile {i:smiles} \
 		-threads {p:threads} \
@@ -35,9 +39,6 @@ func NewGenSignFilterSubst(wf *sp.Workflow, name string, params GenSignFilterSub
 	p.InParam("minheight").FromInt(params.minHeight)
 	p.InParam("maxheight").FromInt(params.maxHeight)
 	p.SetOut("signatures", "{i:smiles}.{p:minheight}_{p:maxheight}.sign")
-	if runMode == RunModeHPC {
-		p.Prepend = slurmInfo.AsSallocString()
-	}
 	return &GenSignFilterSubst{p}
 }
 
@@ -52,140 +53,94 @@ func (p *GenSignFilterSubst) OutSignatures() *sp.OutPort {
 }
 
 // ====================================================================================================
+// SampleTrainAndTest
+// ====================================================================================================
 
-type CopyFile struct {
+// SampleTrainAndTest samples train and test datasets from an input dataset
+// consisting of a text file with row-wise values.
+type SampleTrainAndTest struct {
 	*sp.Process
 }
 
-func NewCopyFile(wf *sp.Workflow, name string) *CopyFile {
-	p := wf.NewProc(name, "cp {i:orig} {o:copy}")
-	return &CopyFile{p}
+type SamplingMethod string
+
+const (
+	SamplingMethodSignCnt SamplingMethod = "signcnt"
+	SamplingMethodRandom  SamplingMethod = "rand"
+)
+
+// SampleTrainAndTestConf contains parameters for initializing a
+// SampleTrainAndTest process
+type SampleTrainAndTestConf struct {
+	ReplicateID    string
+	TestSize       int
+	TrainSize      int
+	Seed           int
+	SamplingMethod SamplingMethod
 }
 
-func (p *CopyFile) InOrig() *sp.InPort {
-	return p.In("orig")
-}
-func (p *CopyFile) OutCopy() *sp.OutPort {
-	return p.Out("copy")
+// NewSampleTrainAndTest return a new SampleTrainAndTestConf process
+func NewSampleTrainAndTest(wf *sp.Workflow, name string, params SampleTrainAndTestConf) *SampleTrainAndTest {
+	jarFile := map[SamplingMethod]string{
+		SamplingMethodRandom:  "SampleTrainingAndTest",
+		SamplingMethodSignCnt: "SampleTrainingAndTestSizeBased",
+	}[params.SamplingMethod]
+
+	cmd := fmt.Sprintf(`java -jar ../bin/%s.jar \
+		-inputfile {i:signatures} \
+		-testfile {o:testdata} \
+		-trainingfile {o:traindata} \
+		-testsize %d \
+		-trainingsize %d \
+		-silent`,
+		jarFile,
+		params.TestSize,
+		params.TrainSize)
+	if params.Seed != 0 {
+		cmd += fmt.Sprintf(` \
+		-seed %d`, params.Seed)
+	}
+
+	p := wf.NewProc(name, cmd)
+	fmtBasePath := func(t *sp.Task) string {
+		return t.InPath("signatures") + fmt.Sprintf(".%d_%d_%s", params.TestSize, params.TrainSize, params.SamplingMethod)
+	}
+	p.SetOutFunc("traindata", func(t *sp.Task) string {
+		return fmtBasePath(t) + "_trn"
+	})
+	p.SetOutFunc("testdata", func(t *sp.Task) string {
+		return fmtBasePath(t) + "_tst"
+	})
+	p.SetOutFunc("log", func(t *sp.Task) string {
+		return fmtBasePath(t) + "_trn.log"
+	})
+	return &SampleTrainAndTest{p}
 }
 
-//# ====================================================================================================
-//
-//class CreateRunCopy(sl.Task):
-//
-//    # TASK PARAMETERS
-//    run_id = luigi.Parameter()
-//
-//    # TARGETS
-//    in_file = None
-//
-//    def out_copy(self):
-//        filedir = os.path.dirname(self.in_file().path)
-//        filename = os.path.basename(self.in_file().path)
-//        newdir = os.path.join(filedir, self.run_id)
-//        if not os.path.isdir(newdir):
-//            os.mkdir(newdir)
-//        return sl.TargetInfo(self, os.path.join(newdir, filename))
-//
-//    def run(self):
-//        shutil.copy(self.in_file().path, self.out_copy().path)
-//
-//# ====================================================================================================
-//
-//class CreateReplicateCopy(sl.Task):
-//
-//class UnGzipFile(sl.SlurmTask):
-//    # TARGETS
-//    in_gzipped = None
-//
-//    def out_ungzipped(self):
-//        return sl.TargetInfo(self, self.in_gzipped().path + '.ungz')
-//
-//    def run(self):
-//        self.ex(['gunzip', '-c',
-//                  self.in_gzipped().path,
-//                  '>',
-//                  self.out_ungzipped().path])
-//
-//# ====================================================================================================
-//
-//    # TASK PARAMETERS
-//    replicate_id = luigi.Parameter()
-//
-//    # TARGETS
-//    in_file = None
-//
-//    def out_copy(self):
-//        if self.in_file is None:
-//            raise Exception('In-port field in_file of CreateReplicateCopy is None')
-//        elif self.in_file() is None:
-//            raise Exception('In-port field in_file of CreateReplicateCopy return None')
-//        else:
-//            return sl.TargetInfo(self, self.in_file().path + '.' + self.replicate_id)
-//
-//    def run(self):
-//        shutil.copy(self.in_file().path, self.out_copy().path)
-//
-//# ====================================================================================================
-//
-//class SampleTrainAndTest(sl.SlurmTask):
-//
-//    # TASK PARAMETERS
-//    seed = luigi.Parameter(default=None)
-//    test_size = luigi.Parameter()
-//    train_size = luigi.Parameter()
-//    sampling_method = luigi.Parameter()
-//    replicate_id = luigi.Parameter()
-//
-//    # INPORTS
-//    in_signatures = None
-//
-//    # OUTPORTS
-//    def out_traindata(self):
-//        return sl.TargetInfo(self, self.get_basepath() + '_trn')
-//    def out_testdata(self):
-//        return sl.TargetInfo(self, self.get_basepath() + '_tst')
-//    def out_log(self):
-//        return sl.TargetInfo(self, self.get_basepath() + '_trn.log') # This is generated by the jar
-//    # OUTPORT Helper method
-//    def get_basepath(self):
-//        base_path = self.in_signatures().path + '.{test}_{train}_{method}'.format(
-//            test  = self.test_size.replace('%', 'proc'),
-//            train = self.train_size,
-//            method = self.sampling_method.replace('random', 'rand').replace('signature_count', 'signcnt'))
-//        return base_path
-//
-//    # WHAT THE TASK DOES
-//    def run(self):
-//        test_temp_path  = self.out_testdata().path  + '.tmp'
-//        train_temp_path = self.out_traindata().path + '.tmp'
-//
-//        jar_files = { 'random'          : 'SampleTrainingAndTest',
-//                      'signature_count' : 'SampleTrainingAndTestSizedBased' }
-//        jar_file = jar_files[self.sampling_method]
-//
-//        cmd = ['java', '-jar', 'bin/' + jar_file + '.jar',
-//                     '-inputfile', self.in_signatures().path,
-//                     '-testfile', test_temp_path,
-//                     '-trainingfile', train_temp_path,
-//                     '-testsize', self.test_size,
-//                     '-trainingsize', self.train_size,
-//                     '-silent']
-//        if self.seed is not None and self.seed != 'None':
-//            cmd.extend(['-seed', self.seed])
-//
-//        self.ex(cmd)
-//
-//        # Restore temporary test and train files to their original file names
-//        shutil.move(test_temp_path,
-//                    self.out_testdata().path)
-//        shutil.move(train_temp_path,
-//                    self.out_traindata().path)
-//        shutil.move(self.out_traindata().path + '.tmp.log',
-//                    self.out_traindata().path + '.log')
-//
-//# ====================================================================================================
-//
+// InSignatures returns the Signatures in-port
+func (p *SampleTrainAndTest) InSignatures() *sp.InPort {
+	return p.In("signatures")
+}
+
+// OutTraindata returns the Traindata out-port
+func (p *SampleTrainAndTest) OutTraindata() *sp.OutPort {
+	return p.Out("traindata")
+}
+
+// OutTestdata returns the Traindata out-port
+func (p *SampleTrainAndTest) OutTestdata() *sp.OutPort {
+	return p.Out("testdata")
+}
+
+// OutLog returns the Log out-port
+func (p *SampleTrainAndTest) OutLog() *sp.OutPort {
+	return p.Out("log")
+}
+
+// ====================================================================================================
+// CreateSparseTrainDataset
+// ====================================================================================================
+
 //class CreateSparseTrainDataset(sl.SlurmTask):
 //
 //    # TASK PARAMETERS
@@ -210,9 +165,7 @@ func (p *CopyFile) OutCopy() *sp.OutPort {
 //                '-datasetfile', self.out_sparse_traindata().path,
 //                '-signaturesoutfile', self.out_signatures().path,
 //                '-silent'])
-//
-//# ====================================================================================================
-//
+
 //class CreateSparseTestDataset(sl.Task):
 //
 //    # INPUT TARGETS
@@ -241,109 +194,7 @@ func (p *CopyFile) OutCopy() *sp.OutPort {
 //                '-datasetfile', self.out_sparse_testdata().path,
 //                '-signaturesoutfile', self.out_signatures().path,
 //                '-silent'])
-//
-//# ====================================================================================================
-//
-//class TrainSVMModel(sl.SlurmTask):
-//
-//    # INPUT TARGETS
-//    in_traindata = None
-//
-//    # TASK PARAMETERS
-//    replicate_id = luigi.Parameter()
-//    train_size = luigi.Parameter()
-//    svm_gamma = luigi.Parameter()
-//    svm_cost = luigi.Parameter()
-//    svm_type = luigi.Parameter()
-//    svm_kernel_type = luigi.Parameter()
-//
-//    # Whether to run svm-train or pisvm-train when training
-//    parallel_train = luigi.BooleanParameter()
-//
-//    # DEFINE OUTPUTS
-//    def out_model(self):
-//        return sl.TargetInfo(self, self.in_traindata().path + '.g{g}_c{c}_s{s}_t{t}.svm'.format(
-//            g = self.svm_gamma.replace('.', 'p'),
-//            c = self.svm_cost,
-//            s = self.svm_type,
-//            t = self.svm_kernel_type))
-//
-//    def out_traintime(self):
-//        return sl.TargetInfo(self, self.out_model().path + '.extime')
-//
-//    # WHAT THE TASK DOES
-//    def run(self):
-//        '''
-//        Determine pisvm parameters based on training set size
-//        Details from Ola and Marcus:
-//
-//        size         o    q
-//        -------------------
-//        <1k:       100  100
-//        1k-5k:     512  256
-//        5k-40k    1024 1024
-//        >40k      2048 2048
-//        '''
-//
-//        train_size = self.train_size
-//        if train_size == 'rest':
-//            o = 2048
-//            q = 2048
-//        else:
-//            trainsize_num = int(train_size)
-//            if trainsize_num < 100:
-//                o = 10
-//                q = 10
-//            elif 100 <= trainsize_num < 1000:
-//                o = 100
-//                q = 100
-//            elif 1000 <= trainsize_num < 5000:
-//                o = 512
-//                q = 256
-//            elif 5000 <= trainsize_num < 40000:
-//                o = 1024
-//                q = 1024
-//            elif 40000 <= trainsize_num:
-//                o = 2048
-//                q = 2048
-//            else:
-//                raise Exception('Trainingsize {s} is not "rest" nor a valid positive number!'.format(s = trainsize_num))
-//
-//        # Set some file paths
-//        trainfile = self.in_traindata().path
-//        svmmodel_file = self.out_model().path
-//
-//        # Select train command based on parameter
-//        if self.parallel_train:
-//            self.ex(['/usr/bin/time', '-f%e', '-o',
-//                    self.out_traintime().path,
-//                    'bin/pisvm-train',
-//                    '-o', str(o),
-//                    '-q', str(q),
-//                    '-s', self.svm_type,
-//                    '-t', self.svm_kernel_type,
-//                    '-g', self.svm_gamma,
-//                    '-c', self.svm_cost,
-//                    '-m', '2000',
-//                    self.in_traindata().path,
-//                    svmmodel_file,
-//                    '>',
-//                    '/dev/null']) # Needed, since there is no quiet mode in pisvm :/
-//        else:
-//            self.ex(['/usr/bin/time', '-f%e', '-o',
-//                self.out_traintime().path,
-//                'bin/svm-train',
-//                '-s', self.svm_type,
-//                '-t', self.svm_kernel_type,
-//                '-g', self.svm_gamma,
-//                '-c', self.svm_cost,
-//                '-m', '2000',
-//                '-q', # quiet mode
-//                self.in_traindata().path,
-//                svmmodel_file])
-//
-//# ====================================================================================================
-//
+
 //class TrainLinearModel(sl.SlurmTask):
 //    # INPUT TARGETS
 //    in_traindata = None
@@ -381,32 +232,7 @@ func (p *CopyFile) OutCopy() *sp.OutPort {
 //            '-q', # quiet mode
 //            self.in_traindata().path,
 //            self.out_model().path])
-//
-//# ====================================================================================================
-//
-//class PredictSVMModel(sl.Task):
-//    # INPUT TARGETS
-//    in_svmmodel = None
-//    in_sparse_testdata = None
-//    replicate_id = luigi.Parameter()
-//
-//    # TASK PARAMETERS
-//    testdata_gzipped = luigi.BooleanParameter(default=True)
-//
-//    # DEFINE OUTPUTS
-//    def out_prediction(self):
-//        return sl.TargetInfo(self, self.in_svmmodel().path + '.pred')
-//
-//    # WHAT THE TASK DOES
-//    def run(self):
-//        # Run prediction
-//        self.ex(['bin/svm-predict',
-//                self.in_sparse_testdata().path,
-//                self.in_svmmodel().path,
-//                self.out_prediction().path])
-//
-//# ====================================================================================================
-//
+
 //class PredictLinearModel(sl.Task):
 //    # INPUT TARGETS
 //    in_model = None
@@ -425,9 +251,7 @@ func (p *CopyFile) OutCopy() *sp.OutPort {
 //            self.in_sparse_testdata().path,
 //            self.in_model().path,
 //            self.out_prediction().path])
-//
-//# ====================================================================================================
-//
+
 //class AssessLinearRMSD(sl.Task): # TODO: Check with Jonalv whether RMSD is what we want to do?!!
 //    # Parameters
 //    lin_cost = luigi.Parameter()
@@ -456,46 +280,7 @@ func (p *CopyFile) OutCopy() *sp.OutPort {
 //                        'cost': self.lin_cost}
 //        with self.out_assessment().open('w') as assessfile:
 //            sl.util.dict_to_recordfile(assessfile, rmsd_records)
-//
-//# ====================================================================================================
-//
-//class AssessSVMRMSD(sl.Task):
-//    # Parameters
-//    svm_cost = luigi.Parameter()
-//    svm_gamma = luigi.Parameter()
-//    svm_type = luigi.Parameter()
-//    svm_kernel_type = luigi.Parameter()
-//
-//    # INPUT TARGETS
-//    in_model = None
-//    in_sparse_testdata = None
-//    in_prediction = None
-//
-//    # DEFINE OUTPUTS
-//    def out_assessment(self):
-//        return sl.TargetInfo(self, self.in_prediction().path + '.rmsd')
-//
-//    # WHAT THE TASK DOES
-//    def run(self):
-//        with self.in_sparse_testdata().open() as testfile:
-//            with self.in_prediction().open() as predfile:
-//                squared_diffs = []
-//                for tline, pline in zip(testfile, predfile):
-//                    test = float(tline.split(' ')[0])
-//                    pred = float(pline)
-//                    squared_diff = (pred-test)**2
-//                    squared_diffs.append(squared_diff)
-//        rmsd = math.sqrt(sum(squared_diffs)/len(squared_diffs))
-//        rmsd_records = {'rmsd': rmsd,
-//                        'svm_cost': self.svm_cost,
-//                        'svm_gamma': self.svm_gamma,
-//                        'svm_type': self.svm_type,
-//                        'svm_kernel_type': self.svm_kernel_type}
-//        with self.out_assessment().open('w') as assessfile:
-//            sl.util.dict_to_recordfile(assessfile, rmsd_records)
-//
-//# ====================================================================================================
-//
+
 //class CollectDataReportRow(sl.Task):
 //    dataset_name = luigi.Parameter()
 //    train_method = luigi.Parameter()
@@ -542,9 +327,7 @@ func (p *CopyFile) OutCopy() *sp.OutPort {
 //                      'train_time_sec': train_time_sec,
 //                      'lin_cost': lin_cost}
 //            sl.dict_to_recordfile(outfile, rdata)
-//
-//# ====================================================================================================
-//
+
 //class CollectDataReport(sl.Task):
 //    dataset_name = luigi.Parameter()
 //    train_method = luigi.Parameter()
@@ -582,9 +365,7 @@ func (p *CopyFile) OutCopy() *sp.OutPort {
 //                                     r['rmsd'],
 //                                     r['train_time_sec'],
 //                                     r['lin_cost']])
-//
-//# ====================================================================================================
-//
+
 //class CalcAverageRMSDForCost(sl.Task): # TODO: Check with Jonalv whether RMSD is what we want to do?!!
 //    # Parameters
 //    lin_cost = luigi.Parameter()
@@ -607,9 +388,7 @@ func (p *CopyFile) OutCopy() *sp.OutPort {
 //                           'cost': self.lin_cost}
 //        with self.out_rmsdavg().open('w') as outfile:
 //            sl.util.dict_to_recordfile(outfile, rmsdavg_records)
-//
-//# ====================================================================================================
-//
+
 //class SelectLowestRMSD(sl.Task):
 //    # Inputs
 //    in_values = None
@@ -633,92 +412,7 @@ func (p *CopyFile) OutCopy() *sp.OutPort {
 //                     'lowest_cost': val_lowest_rmsd_cost['cost']}
 //        with self.out_lowest().open('w') as lowestfile:
 //            sl.util.dict_to_recordfile(lowestfile, lowestrec)
-//
-//# ====================================================================================================
-//
-//class CreateElasticNetModel(sl.Task):
-//
-//    # INPUT TARGETS
-//    in_traindata = None
-//
-//    # TASK PARAMETERS
-//    l1_value = luigi.Parameter()
-//    lambda_value = luigi.Parameter()
-//    java_path = luigi.Parameter()
-//
-//    # DEFINE OUTPUTS
-//    def out_model(self):
-//        return sl.TargetInfo(self, self.in_traindata().path + '.model_{l}_{y}'.format(
-//            l=self.get_value('l1_value'),
-//            y=self.get_value('lambda_value')
-//        ))
-//
-//    def run(self):
-//        self.ex(['java', '-jar', 'bin/CreateElasticNetModel.jar',
-//                '-inputfile', self.in_traindata().path,
-//                '-l1ratio', str(self.get_value('l1_value')),
-//                '-lambda', str(self.get_value('lambda_value')),
-//                '-outputfile', self.out_model().path,
-//                '-silent'])
-//
-//        #self.ex_local(['mv',
-//        #         self.in_traindata().path + '.model',
-//        #         self.in_traindata().path + '.model_{l}_{y}'.format(l=self.get_value('l1_value'),y=self.get_value('lambda_value'))])
-//
-//
-//# ====================================================================================================
-//
-//class PredictElasticNetModel(sl.Task):
-//
-//    # INPUT TARGETS
-//    in_elasticnet_model = None
-//    in_testdata = None
-//
-//    # TASK PARAMETERS
-//    l1_value = luigi.Parameter()
-//    lambda_value = luigi.Parameter()
-//    java_path = luigi.Parameter()
-//
-//    def out_prediction(self):
-//        return sl.TargetInfo(self, self.in_elasticnet_model().path + '.pred')
-//
-//    def run(self):
-//        self.ex(['java', '-jar', 'bin/PredictElasticNetModel.jar',
-//                '-modelfile', self.in_elasticnet_model().path,
-//                '-testset', self.in_testdata().path,
-//                '-outputfile', self.out_prediction().path,
-//                '-silent'])
-//
-//# ====================================================================================================
-//
-//class EvaluateElasticNetPrediction(sl.Task):
-//     # INPUT TARGETS
-//     in_testdata = None
-//     in_prediction = None
-//
-//     # TASK PARAMETERS
-//     l1_value = luigi.Parameter()
-//     lambda_value = luigi.Parameter()
-//
-//     # DEFINE OUTPUTS
-//     def out_evaluation(self):
-//         return sl.TargetInfo(self,  self.in_prediction().path + '.evaluation' )
-//
-//     # WHAT THE TASK DOES
-//     def run(self):
-//         with gzip.open(self.in_testdata().path) as testset_file, self.in_prediction().open() as prediction_file:
-//             original_vals = [float(line.split(' ')[0]) for line in testset_file]
-//             predicted_vals = [float(val.strip('\n')) for val in prediction_file]
-//         squared = [(pred-orig)**2 for orig, pred in zip(original_vals, predicted_vals)]
-//         rmsd = math.sqrt( sum(squared) / len(squared) )
-//         with self.out_evaluation().open('w') as outfile:
-//             csvwriter = csv.writer(outfile)
-//             csvwriter.writerow(['rmsd', rmsd])
-//             csvwriter.writerow(['l1ratio', self.get_value('l1_value')])
-//             csvwriter.writerow(['lambda', self.get_value('lambda_value')])
-//
-//# ====================================================================================================
-//
+
 //class CountLines(sl.SlurmTask):
 //    ungzip = luigi.BooleanParameter(default=False)
 //
@@ -738,9 +432,7 @@ func (p *CopyFile) OutCopy() *sp.OutPort {
 //                stat, out, err = self.ex_local(cmd)
 //                linecnt = int(out.split(' ')[0])
 //                outfile.write(str(linecnt))
-//
-//# ====================================================================================================
-//
+
 //class CreateRandomData(sl.SlurmTask):
 //    size_mb = luigi.IntParameter()
 //    replicate_id = luigi.Parameter()
@@ -757,9 +449,7 @@ func (p *CopyFile) OutCopy() *sp.OutPort {
 //              'bs=1048576',
 //              'count=%d' % self.size_mb]
 //        self.ex(cmd)
-//
-//# ====================================================================================================
-//
+
 //class ShuffleLines(sl.SlurmTask):
 //    in_file = None
 //    in_randomdata = None
@@ -775,9 +465,7 @@ func (p *CopyFile) OutCopy() *sp.OutPort {
 //                       self.in_file().path,
 //                       '>',
 //                       self.out_shuffled().path])
-//
-//# ====================================================================================================
-//
+
 //class CreateFolds(sl.SlurmTask):
 //
 //    # TASK PARAMETERS
@@ -914,9 +602,7 @@ func (p *CopyFile) OutCopy() *sp.OutPort {
 //        # Remove the temporary R script
 //        self.ex_local(['rm',
 //                       tempscriptpath])
-//
-//# ================================================================================
-//
+
 //class MergedDataReport(sl.Task):
 //    run_id = luigi.Parameter()
 //
@@ -936,3 +622,35 @@ func (p *CopyFile) OutCopy() *sp.OutPort {
 //                    merged_rows.append(line)
 //        with self.out_merged_report().open('w') as outfile:
 //            outfile.write(''.join(merged_rows))
+
+// ================================================================================
+// TEMPLATE
+// ================================================================================
+
+// // REPLACETHIS does blabla ...
+// type REPLACETHIS struct {
+// 	*sp.Process
+// }
+//
+// // REPLACETHISConf contains parameters for initializing a
+// // REPLACETHIS process
+// type REPLACETHISConf struct {
+// }
+//
+// // NewREPLACETHIS returns a new REPLACETHIS process
+// func NewREPLACETHIS(wf *sp.Workflow, name string, params REPLACETHISConf) *REPLACETHIS {
+// 	cmd := ``
+// 	p := wf.NewProc(name, cmd)
+// 	p.SetOut("out", "out.txt")
+// 	return &REPLACETHIS{p}
+// }
+//
+// // InInfile returns the Infile in-port
+// func (p *REPLACETHIS) InInfile() *sp.InPort {
+// 	return p.In("in")
+// }
+//
+// // OutOutfile returns the Outfile out-port
+// func (p *REPLACETHIS) OutOutfile() *sp.OutPort {
+// 	return p.Out("out")
+// }

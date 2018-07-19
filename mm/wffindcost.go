@@ -1,4 +1,13 @@
-package main // Reproduce SciPipe Case Study Workflow
+package main
+
+// --------------------------------------------------------------------------------
+// Reproduce SciPipe Case Study Workflow
+// --------------------------------------------------------------------------------
+// The code for a virtual machine with the SciLuigi version of this workflow is
+// available [here](https://github.com/pharmbio/bioimg-sciluigi-casestudy), and
+// the direct link to the code for this notebook is available
+// [here](https://github.com/pharmbio/bioimg-sciluigi-casestudy/blob/master/roles/sciluigi_usecase/files/proj/largescale_svm/wffindcost.ipynb).
+// --------------------------------------------------------------------------------
 
 import (
 	"fmt"
@@ -13,11 +22,6 @@ import (
 const (
 	dataDir = "data/"
 )
-
-// The code for a virtual machine with the SciLuigi version of this workflow is
-// available [here](https://github.com/pharmbio/bioimg-sciluigi-casestudy), and
-// the direct link to the code for this notebook is available
-// [here](https://github.com/pharmbio/bioimg-sciluigi-casestudy/blob/master/roles/sciluigi_usecase/files/proj/largescale_svm/wffindcost.ipynb).
 
 func main() {
 	dlWf := sp.NewWorkflow("download_jars", 2)
@@ -72,17 +76,17 @@ type CrossValidateWorkflowParams struct {
 }
 
 // ================================================================================
-// Start Workflow definition
+// Start: Main Workflow definition
 // ================================================================================
 
 // NewCrossValidateWorkflow returns an initialized CrossValidateWorkflow
 func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) *CrossValidateWorkflow {
-	wf := sp.NewWorkflow("Cross Validate Workflow", maxTasks)
+	wf := sp.NewWorkflow("cross_validate", maxTasks)
 
 	mmTestData := spcomp.NewFileSource(
 		wf,
 		"mmTestData",
-		fmt.Sprintf("data/%s.smi", params.DatasetName))
+		fs("data/%s.smi", params.DatasetName))
 
 	//procs := []sp.WorkflowProcess{}
 	//lowestRMSDs := []float64{}
@@ -96,66 +100,62 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 	for _, replID := range replicateIds {
 		replID := replID // Create local copy of variable to avoid access to global loop variable from closures
 
-		genSign := NewGenSignFilterSubst(wf, fmt.Sprintf("gensign_%s", replID),
+		// ------------------------------------------------------------------------
+		// Generate signatures and filter substances
+		// ------------------------------------------------------------------------
+		genSign := NewGenSignFilterSubst(wf, fs("gensign_%s", replID),
 			GenSignFilterSubstConf{
 				replicateID: replID,
 				threadsCnt:  8,
 				minHeight:   params.MinHeight,
 				maxHeight:   params.MaxHeight,
-			},
-			SlurmInfo{
-				Project:   params.SlurmProject,
-				Partition: PartitionCore,
-				Cores:     8,
-				Time:      parseDuration("1h"),
-				JobName:   "mmgensign",
-				Threads:   8,
-			},
-			RunModeLocal)
+			})
 		genSign.InSmiles().From(mmTestData.Out())
 
+		// ------------------------------------------------------------------------
 		// Create a unique copy per run
+		// ------------------------------------------------------------------------
 		createRunCopy := wf.NewProc("create_runcopy_"+params.RunID, "cp {i:orig} {o:copy} # {p:runid}")
-		createRunCopy.SetOut("copy", fmt.Sprintf("%s/{i:orig}", params.RunID))
-		createRunCopy.SetPathCustom("copy", func(t *sp.Task) string {
+		createRunCopy.SetOut("copy", fs("%s/{i:orig}", params.RunID))
+		createRunCopy.SetOutFunc("copy", func(t *sp.Task) string {
 			origPath := t.InPath("orig")
 			return filepath.Dir(origPath) + "/" + t.Param("runid") + "/" + filepath.Base(origPath)
 		})
 		createRunCopy.InParam("runid").FromStr(params.RunID)
 		createRunCopy.In("orig").From(genSign.OutSignatures())
 
+		// ------------------------------------------------------------------------
 		// Create a unique copy per replicate
+		// ------------------------------------------------------------------------
 		createReplCopy := wf.NewProc("create_replcopy_"+replID, "cp {i:orig} {o:copy} # {p:replid}")
-		createReplCopy.SetPathCustom("copy", func(t *sp.Task) string {
+		createReplCopy.SetOutFunc("copy", func(t *sp.Task) string {
 			origPath := t.InPath("orig")
 			return filepath.Dir(origPath) + "/" + t.Param("replid") + "/" + filepath.Base(origPath)
 		})
 		createReplCopy.InParam("replid").FromStr(replID)
 		createReplCopy.In("orig").From(genSign.OutSignatures())
+
+		for _, trainSize := range params.TrainSizes {
+			// ------------------------------------------------------------------------
+			// Sample train and test
+			// ------------------------------------------------------------------------
+			sampleTrainTest := NewSampleTrainAndTest(wf, fs("sample_train_test_%d_%s", trainSize, replID),
+				SampleTrainAndTestConf{
+					ReplicateID:    replID,
+					SamplingMethod: SamplingMethodRandom,
+					TrainSize:      trainSize,
+					TestSize:       params.TestSize,
+				})
+			sampleTrainTest.InSignatures().From(createReplCopy.Out("copy"))
+		}
 	}
+
 	return &CrossValidateWorkflow{wf}
 }
 
 // ================================================================================
-// End Workflow definition
+// End: Main Workflow definition
 // ================================================================================
-
-//            for train_size in [i for i in self.train_sizes.split(',')]:
-//                samplett = self.new_task('sampletraintest_%s_%s' % (train_size, replicate_id), SampleTrainAndTest,
-//                        replicate_id=replicate_id,
-//                        sampling_method='random',
-//                        test_size=self.test_size,
-//                        train_size=train_size,
-//                        slurminfo = sciluigi.SlurmInfo(
-//                            runmode=runmode,
-//                            project='b2013262',
-//                            partition='core',
-//                            cores='2',
-//                            time='1:00:00',
-//                            jobname='mmsampletraintest_%s_%s' % (train_size, replicate_id),
-//                            threads='1'
-//                        ))
-//                samplett.in_signatures = replcopy.out_copy
 
 //                sprstrain = self.new_task('sparsetrain_%s_%s' % (train_size, replicate_id), CreateSparseTrainDataset,
 //                        replicate_id=replicate_id,
@@ -533,4 +533,9 @@ func parseDuration(durStr string) time.Duration {
 		log.Fatal(err)
 	}
 	return dur
+}
+
+// fs is a short for fmt.Sprintf
+func fs(pat string, v ...interface{}) string {
+	return fmt.Sprintf(pat, v...)
 }
