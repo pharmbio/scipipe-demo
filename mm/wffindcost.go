@@ -169,10 +169,12 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 			// ------------------------------------------------------------------------
 			// Generate random data
 			// ------------------------------------------------------------------------
-			// genrandomdata= self.new_task('genrandomdata_%s_%s' % (train_size, replicate_id), CreateRandomData,
-			//         size_mb=self.randomdatasize_mb,
-			//         replicate_id=replicate_id,
-			// genrandomdata.in_basepath = gunzip.out_ungzipped
+			genRandBytes := NewGenRandBytes(wf, fs("genrandbytes_%d_%s", trainSize, replID),
+				GenRandBytesConf{
+					SizeMB:      params.RandomDataSizeMB,
+					ReplicateID: replID,
+				})
+			genRandBytes.InBasePath().From(gunzipSparseTrain.Out("ungzipped"))
 		}
 	}
 

@@ -132,23 +132,6 @@ package main
 //        with self.out_lowest().open('w') as lowestfile:
 //            sl.util.dict_to_recordfile(lowestfile, lowestrec)
 
-//class CreateRandomData(sl.SlurmTask):
-//    size_mb = luigi.IntParameter()
-//    replicate_id = luigi.Parameter()
-//
-//    in_basepath = None
-//
-//    def out_random(self):
-//        return sl.TargetInfo(self, self.in_basepath().path + '.randombytes')
-//
-//    def run(self):
-//        cmd =['dd',
-//              'if=/dev/urandom',
-//              'of=%s' % self.out_random().path,
-//              'bs=1048576',
-//              'count=%d' % self.size_mb]
-//        self.ex(cmd)
-
 //class ShuffleLines(sl.SlurmTask):
 //    in_file = None
 //    in_randomdata = None
