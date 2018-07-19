@@ -132,26 +132,6 @@ package main
 //        with self.out_lowest().open('w') as lowestfile:
 //            sl.util.dict_to_recordfile(lowestfile, lowestrec)
 
-//class CountLines(sl.SlurmTask):
-//    ungzip = luigi.BooleanParameter(default=False)
-//
-//    in_file = None
-//
-//    def out_linecount(self):
-//        return sl.TargetInfo(self, self.in_file().path + '.linecnt')
-//
-//    def run(self):
-//        if self.ungzip:
-//            cmd = 'zcat %s | wc -l' % self.in_file().path
-//        else:
-//            cmd = 'wc -l %s' % self.in_file().path
-//
-//        with self.in_file().open() as infile:
-//            with self.out_linecount().open('w') as outfile:
-//                stat, out, err = self.ex_local(cmd)
-//                linecnt = int(out.split(' ')[0])
-//                outfile.write(str(linecnt))
-
 //class CreateRandomData(sl.SlurmTask):
 //    size_mb = luigi.IntParameter()
 //    replicate_id = luigi.Parameter()

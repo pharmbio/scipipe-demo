@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 
 	sp "github.com/scipipe/scipipe"
 )
@@ -53,7 +54,9 @@ func NewSampleTrainAndTest(wf *sp.Workflow, name string, params SampleTrainAndTe
 
 	p := wf.NewProc(name, cmd)
 	fmtBasePath := func(t *sp.Task) string {
-		return t.InPath("signatures") + fmt.Sprintf(".%d_%d_%s", params.TestSize, params.TrainSize, params.SamplingMethod)
+		signPath := t.InPath("signatures")
+		trainTestSampl := fs("%d_%d_%s", params.TestSize, params.TrainSize, params.SamplingMethod)
+		return filepath.Dir(signPath) + "/sampletraintest_" + trainTestSampl + "/" + filepath.Base(signPath) + "." + trainTestSampl
 	}
 	p.SetOutFunc("traindata", func(t *sp.Task) string {
 		return fmtBasePath(t) + "_trn"

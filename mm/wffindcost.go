@@ -155,6 +155,24 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 				ReplicateID: replID,
 			})
 			sparseTrain.InTraindata().From(sampleTrainTest.OutTraindata())
+			// Ad-hoc process to un-gzip the sparse train data file
+			gunzipSparseTrain := wf.NewProc(fs("gunzip_sparsetrain_%d_%s", trainSize, replID), "zcat {i:orig} > {o:ungzipped}")
+			gunzipSparseTrain.In("orig").From(sparseTrain.OutSparseTraindata())
+			gunzipSparseTrain.SetOut("ungzipped", "{i:orig}.ungz")
+
+			// ------------------------------------------------------------------------
+			// Count traindata
+			// ------------------------------------------------------------------------
+			cntTrainData := NewCountLines(wf, fs("cnttrain_%d_%s", trainSize, replID), CountLinesConf{})
+			cntTrainData.InFile().From(gunzipSparseTrain.Out("ungzipped"))
+
+			// ------------------------------------------------------------------------
+			// Generate random data
+			// ------------------------------------------------------------------------
+			// genrandomdata= self.new_task('genrandomdata_%s_%s' % (train_size, replicate_id), CreateRandomData,
+			//         size_mb=self.randomdatasize_mb,
+			//         replicate_id=replicate_id,
+			// genrandomdata.in_basepath = gunzip.out_ungzipped
 		}
 	}
 
@@ -164,12 +182,6 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 // ================================================================================
 // End: Main Workflow definition
 // ================================================================================
-
-//                gunzip = self.new_task('gunzip_sparsetrain_%s_%s' % (train_size, replicate_id), UnGzipFile,
-//                gunzip.in_gzipped = sprstrain.out_sparse_traindata
-
-//                cntlines = self.new_task('countlines_%s_%s' % (train_size, replicate_id), CountLines,
-//                cntlines.in_file = gunzip.out_ungzipped
 
 //                genrandomdata= self.new_task('genrandomdata_%s_%s' % (train_size, replicate_id), CreateRandomData,
 //                        size_mb=self.randomdatasize_mb,
