@@ -157,67 +157,18 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 // End: Main Workflow definition
 // ================================================================================
 
-//                sprstrain = self.new_task('sparsetrain_%s_%s' % (train_size, replicate_id), CreateSparseTrainDataset,
-//                        replicate_id=replicate_id,
-//                        slurminfo = sciluigi.SlurmInfo(
-//                            runmode=runmode,
-//                            project=self.slurm_project,
-//                            partition='core',
-//                            cores='8',
-//                            time='1-00:00:00', # Took ~16hrs for acd_logd, size: rest(train) - 50000(test)
-//                            jobname='mmsparsetrain_%s_%s' % (train_size, replicate_id),
-//                            threads='8'
-//                        ))
-//                sprstrain.in_traindata = samplett.out_traindata
-
 //                gunzip = self.new_task('gunzip_sparsetrain_%s_%s' % (train_size, replicate_id), UnGzipFile,
-//                        slurminfo = sciluigi.SlurmInfo(
-//                            runmode=runmode,
-//                            project=self.slurm_project,
-//                            partition='core',
-//                            cores='1',
-//                            time='1:00:00',
-//                            jobname='gunzip_sparsetrain_%s_%s' % (train_size, replicate_id),
-//                            threads='1'
-//                        ))
 //                gunzip.in_gzipped = sprstrain.out_sparse_traindata
 
 //                cntlines = self.new_task('countlines_%s_%s' % (train_size, replicate_id), CountLines,
-//                        slurminfo = sciluigi.SlurmInfo(
-//                            runmode=runmode,
-//                            project=self.slurm_project,
-//                            partition='core',
-//                            cores='1',
-//                            time='15:00',
-//                            jobname='gunzip_sparsetrain_%s_%s' % (train_size, replicate_id),
-//                            threads='1'
-//                        ))
 //                cntlines.in_file = gunzip.out_ungzipped
 
 //                genrandomdata= self.new_task('genrandomdata_%s_%s' % (train_size, replicate_id), CreateRandomData,
 //                        size_mb=self.randomdatasize_mb,
 //                        replicate_id=replicate_id,
-//                        slurminfo = sciluigi.SlurmInfo(
-//                            runmode=runmode,
-//                            project=self.slurm_project,
-//                            partition='core',
-//                            cores='1',
-//                            time='1:00:00',
-//                            jobname='genrandomdata_%s_%s' % (train_size, replicate_id),
-//                            threads='1'
-//                        ))
 //                genrandomdata.in_basepath = gunzip.out_ungzipped
 
 //                shufflelines = self.new_task('shufflelines_%s_%s' % (train_size, replicate_id), ShuffleLines,
-//                        slurminfo = sciluigi.SlurmInfo(
-//                            runmode=runmode,
-//                            project=self.slurm_project,
-//                            partition='core',
-//                            cores='1',
-//                            time='15:00',
-//                            jobname='shufflelines_%s_%s' % (train_size, replicate_id),
-//                            threads='1'
-//                        ))
 //                shufflelines.in_randomdata = genrandomdata.out_random
 //                shufflelines.in_file = gunzip.out_ungzipped
 
@@ -231,15 +182,6 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 //                            fold_index = fold_idx,
 //                            folds_count = self.folds_count,
 //                            seed = 0.637,
-//                            slurminfo = sciluigi.SlurmInfo(
-//                                runmode=runmode,
-//                                project=self.slurm_project,
-//                                partition='core',
-//                                cores='1',
-//                                time='1:00:00',
-//                                jobname='create_fold%02d_%s_%s' % (fold_idx, train_size, replicate_id),
-//                                threads='1'
-//                            ))
 //                    for cost in costseq:
 //                        tasks[replicate_id][fold_idx][cost] = {}
 //                        create_folds.in_dataset = shufflelines.out_shuffled
@@ -249,42 +191,15 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 //                                replicate_id = replicate_id,
 //                                lin_type = self.lin_type,
 //                                lin_cost = cost,
-//                                slurminfo = sciluigi.SlurmInfo(
-//                                    runmode=runmode,
-//                                    project=self.slurm_project,
-//                                    partition='core',
-//                                    cores='1',
-//                                    time='4-00:00:00',
-//                                    jobname='trnlin_f%02d_c%s_%s_%s' % (fold_idx, cost, train_size, replicate_id),
-//                                    threads='1'
-//                                ))
 //                        train_lin.in_traindata = create_folds.out_traindata
 
 //                        pred_lin = self.new_task('predlin_fold_%d_cost_%s_%s_%s' % (fold_idx, cost, train_size, replicate_id), PredictLinearModel,
 //                                replicate_id = replicate_id,
-//                                slurminfo = sciluigi.SlurmInfo(
-//                                    runmode=runmode,
-//                                    project=self.slurm_project,
-//                                    partition='core',
-//                                    cores='1',
-//                                    time='8:00:00',
-//                                    jobname='predlin_f%02d_c%s_%s_%s' % (fold_idx, cost, train_size, replicate_id),
-//                                    threads='1'
-//                                ))
 //                        pred_lin.in_model = train_lin.out_model
 //                        pred_lin.in_sparse_testdata = create_folds.out_testdata
 
 //                        assess_lin = self.new_task('assesslin_fold_%d_cost_%s_%s_%s' % (fold_idx, cost, train_size, replicate_id), AssessLinearRMSD,
 //                                lin_cost = cost,
-//                                slurminfo = sciluigi.SlurmInfo(
-//                                    runmode=runmode,
-//                                    project=self.slurm_project,
-//                                    partition='core',
-//                                    cores='1',
-//                                    time='15:00',
-//                                    jobname='assesslin_f%02d_c%s_%s_%s' % (fold_idx, cost, train_size, replicate_id),
-//                                    threads='1'
-//                                ))
 //                        assess_lin.in_model = train_lin.out_model
 //                        assess_lin.in_sparse_testdata = create_folds.out_testdata
 //                        assess_lin.in_prediction = pred_lin.out_prediction
