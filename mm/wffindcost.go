@@ -48,6 +48,7 @@ func main() {
 		Runmode:          RunModeLocal,
 		SlurmProject:     "N/A",
 	})
+	crossValWF.PlotGraphPDF("mmdag.dot")
 	crossValWF.Run()
 }
 
@@ -161,7 +162,7 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 			gunzipSparseTrain.SetOut("ungzipped", "{i:orig}.ungz")
 
 			// ------------------------------------------------------------------------
-			// Count traindata
+			// Count train data
 			// ------------------------------------------------------------------------
 			cntTrainData := NewCountLines(wf, fs("cnttrain_%d_%s", trainSize, replID), CountLinesConf{})
 			cntTrainData.InFile().From(gunzipSparseTrain.Out("ungzipped"))
@@ -175,6 +176,13 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 					ReplicateID: replID,
 				})
 			genRandBytes.InBasePath().From(gunzipSparseTrain.Out("ungzipped"))
+
+			// ------------------------------------------------------------------------
+			// Shuffle train data
+			// ------------------------------------------------------------------------
+			shufTrain := NewShuffleLines(wf, fs("shuftrain_%d_%s", trainSize, replID), ShuffleLinesConf{})
+			shufTrain.InData().From(gunzipSparseTrain.Out("ungzipped"))
+			shufTrain.InRandBytes().From(genRandBytes.OutRandBytes())
 		}
 	}
 
@@ -185,16 +193,6 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 // End: Main Workflow definition
 // ================================================================================
 
-//                genrandomdata= self.new_task('genrandomdata_%s_%s' % (train_size, replicate_id), CreateRandomData,
-//                        size_mb=self.randomdatasize_mb,
-//                        replicate_id=replicate_id,
-//                genrandomdata.in_basepath = gunzip.out_ungzipped
-
-//                shufflelines = self.new_task('shufflelines_%s_%s' % (train_size, replicate_id), ShuffleLines,
-//                shufflelines.in_randomdata = genrandomdata.out_random
-//                shufflelines.in_file = gunzip.out_ungzipped
-
-//
 //                costseq = ['0.0001', '0.0005', '0.001', '0.005', '0.01', '0.05', '0.1', '0.25', '0.5', '0.75', '1', '2', '3', '4', '5' ] + [str(int(10**p)) for p in xrange(1,12)]
 //                # Branch the workflow into one branch per fold
 //                for fold_idx in xrange(self.folds_count):
@@ -206,7 +204,7 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 //                            seed = 0.637,
 //                    for cost in costseq:
 //                        tasks[replicate_id][fold_idx][cost] = {}
-//                        create_folds.in_dataset = shufflelines.out_shuffled
+//                        create_folds.in_dataset = shuffleTrain.out_shuffled
 //                        create_folds.in_linecount = cntlines.out_linecount
 
 //                        train_lin = self.new_task('trainlin_fold_%d_cost_%s_%s_%s' % (fold_idx, cost, train_size, replicate_id), TrainLinearModel,

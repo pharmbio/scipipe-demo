@@ -132,22 +132,6 @@ package main
 //        with self.out_lowest().open('w') as lowestfile:
 //            sl.util.dict_to_recordfile(lowestfile, lowestrec)
 
-//class ShuffleLines(sl.SlurmTask):
-//    in_file = None
-//    in_randomdata = None
-//
-//    def out_shuffled(self):
-//        return sl.TargetInfo(self, self.in_file().path + '.shuf')
-//
-//    def run(self):
-//        #with self.in_file().open() as infile:
-//        #    with self.out_shuffled().open('w') as outfile:
-//        self.ex(['shuf',
-//                       '--random-source=%s' % self.in_randomdata().path,
-//                       self.in_file().path,
-//                       '>',
-//                       self.out_shuffled().path])
-
 //class CreateFolds(sl.SlurmTask):
 //
 //    # TASK PARAMETERS
