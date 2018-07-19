@@ -36,7 +36,7 @@ func (p *TrainLibLinear) InTrainData() *sp.InPort {
 	return p.In("traindata")
 }
 
-// OutOutfile returns the Outfile out-port
-func (p *TrainLibLinear) OutOutfile() *sp.OutPort {
-	return p.Out("out")
+// OutModel returns the Model out-port
+func (p *TrainLibLinear) OutModel() *sp.OutPort {
+	return p.Out("model")
 }

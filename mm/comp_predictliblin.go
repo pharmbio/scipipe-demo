@@ -10,41 +10,32 @@ type PredictLibLinear struct {
 // PredictLibLinearConf contains parameters for initializing a
 // PredictLibLinear process
 type PredictLibLinearConf struct {
+	ReplicateID string
 }
 
 // NewPredictLibLinear returns a new PredictLibLinear process
 func NewPredictLibLinear(wf *sp.Workflow, name string, params PredictLibLinearConf) *PredictLibLinear {
-	cmd := ``
+	cmd := `../bin/lin-predict ` +
+		`{i:testdata} ` +
+		`{i:model} ` +
+		`{o:prediction} `
 	p := wf.NewProc(name, cmd)
-	p.SetOut("out", "out.txt")
+	p.SetOut("prediction", "{i:model}.pred")
+
 	return &PredictLibLinear{p}
 }
 
-// InInfile returns the Infile in-port
-func (p *PredictLibLinear) InInfile() *sp.InPort {
-	return p.In("in")
+// InModel returns the Model in-port
+func (p *PredictLibLinear) InModel() *sp.InPort {
+	return p.In("model")
 }
 
-// OutOutfile returns the Outfile out-port
-func (p *PredictLibLinear) OutOutfile() *sp.OutPort {
-	return p.Out("out")
+// InTestData returns the TestData in-port
+func (p *PredictLibLinear) InTestData() *sp.InPort {
+	return p.In("testdata")
 }
 
-//class PredictLinearModel(sl.Task):
-//    # INPUT TARGETS
-//    in_model = None
-//    in_sparse_testdata = None
-//
-//    # TASK PARAMETERS
-//    replicate_id = luigi.Parameter()
-//
-//    # DEFINE OUTPUTS
-//    def out_prediction(self):
-//        return sl.TargetInfo(self, self.in_model().path + '.pred')
-//
-//    # WHAT THE TASK DOES
-//    def run(self):
-//        self.ex(['bin/lin-predict',
-//            self.in_sparse_testdata().path,
-//            self.in_model().path,
-//            self.out_prediction().path])
+// OutPrediction returns the Prediction out-port
+func (p *PredictLibLinear) OutPrediction() *sp.OutPort {
+	return p.Out("prediction")
+}

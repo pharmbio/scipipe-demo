@@ -205,10 +205,12 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 						})
 					trainLibLin.InTrainData().From(createFolds.OutTrainData())
 
-					// pred_lin = self.new_task('predlin_fold_%d_cost_%s_%s_%s' % (fold_idx, cost, train_size, replicate_id), PredictLinearModel,
-					//         replicate_id = replicate_id,
-					// pred_lin.in_model = train_lin.out_model
-					// pred_lin.in_sparse_testdata = create_folds.out_testdata
+					predLibLin := NewPredictLibLinear(wf, fs("predict_fld%02d_%f_%d_%s", foldIdx, cost, trainSize, replID),
+						PredictLibLinearConf{
+							ReplicateID: replID,
+						})
+					predLibLin.InModel().From(trainLibLin.OutModel())
+					predLibLin.InTestData().From(createFolds.OutTestData())
 
 					// assess_lin = self.new_task('assesslin_fold_%d_cost_%s_%s_%s' % (fold_idx, cost, train_size, replicate_id), AssessLinearRMSD,
 					//         lin_cost = cost,
