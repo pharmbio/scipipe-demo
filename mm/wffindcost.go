@@ -147,6 +147,14 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 					TestSize:       params.TestSize,
 				})
 			sampleTrainTest.InSignatures().From(createReplCopy.Out("copy"))
+
+			// ------------------------------------------------------------------------
+			// Create sparse train dataset
+			// ------------------------------------------------------------------------
+			sparseTrain := NewCreateSparseTrain(wf, fs("sparsetrain_%d_%s", trainSize, replID), CreateSparseTrainConf{
+				ReplicateID: replID,
+			})
+			sparseTrain.InTraindata().From(sampleTrainTest.OutTraindata())
 		}
 	}
 

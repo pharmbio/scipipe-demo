@@ -12,47 +12,39 @@ type CreateSparseTrain struct {
 // CreateSparseTrainConf contains parameters for initializing a
 // CreateSparseTrain process
 type CreateSparseTrainConf struct {
+	ReplicateID string
 }
 
 // NewCreateSparseTrain returns a new CreateSparseTrain process
 func NewCreateSparseTrain(wf *sp.Workflow, name string, params CreateSparseTrainConf) *CreateSparseTrain {
-	cmd := ``
+	cmd := `java -jar ../bin/CreateSparseDataset.jar \
+	-inputfile {i:traindata} \
+	-datasetfile {o:sparsetrain} \
+	-signaturesoutfile {o:signatures} \
+	-silent`
 	p := wf.NewProc(name, cmd)
-	p.SetOut("out", "out.txt")
+	p.SetOut("sparsetrain", "{i:traindata}.csr")
+	p.SetOut("signatures", "{i:traindata}.sign")
+	p.SetOut("log", "{i:traindata}.csr.log")
 	return &CreateSparseTrain{p}
 }
 
-// InInfile returns the Infile in-port
-func (p *CreateSparseTrain) InInfile() *sp.InPort {
-	return p.In("in")
+// InTraindata returns the Traindata in-port
+func (p *CreateSparseTrain) InTraindata() *sp.InPort {
+	return p.In("traindata")
 }
 
-// OutOutfile returns the Outfile out-port
-func (p *CreateSparseTrain) OutOutfile() *sp.OutPort {
-	return p.Out("out")
+// OutSparseTraindata returns the SparseTraindata out-port
+func (p *CreateSparseTrain) OutSparseTraindata() *sp.OutPort {
+	return p.Out("sparsetrain")
 }
 
-//class CreateSparseTrainDataset(sl.SlurmTask):
-//
-//    # TASK PARAMETERS
-//    replicate_id = luigi.Parameter()
-//
-//    # INPUT TARGETS
-//    in_traindata = None
-//
-//    def out_sparse_traindata(self):
-//        return sl.TargetInfo(self, self.in_traindata().path + '.csr')
-//
-//    def out_signatures(self):
-//        return sl.TargetInfo(self, self.in_traindata().path + '.signatures')
-//
-//    def out_log(self):
-//        return sl.TargetInfo(self, self.in_traindata().path + '.csr.log')
-//
-//    # WHAT THE TASK DOES
-//    def run(self):
-//        self.ex(['java', '-jar', 'bin/CreateSparseDataset.jar',
-//                '-inputfile', self.in_traindata().path,
-//                '-datasetfile', self.out_sparse_traindata().path,
-//                '-signaturesoutfile', self.out_signatures().path,
-//                '-silent'])
+// OutSignatures returns the Signatures out-port
+func (p *CreateSparseTrain) OutSignatures() *sp.OutPort {
+	return p.Out("signatures")
+}
+
+// OutLog returns the Log out-port
+func (p *CreateSparseTrain) OutLog() *sp.OutPort {
+	return p.Out("log")
+}
