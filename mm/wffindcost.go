@@ -41,7 +41,7 @@ func main() {
 		TestSize:         1000,
 		TrainSizes:       []int{500, 1000, 2000, 4000, 8000},
 		CostVals:         []float64{0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 1, 2, 3, 4, 5},
-		LinType:          12,
+		SolverType:       12,
 		RandomDataSizeMB: 10,
 		Runmode:          RunModeLocal,
 		SlurmProject:     "N/A",
@@ -69,7 +69,7 @@ type CrossValidateWorkflowParams struct {
 	TestSize         int
 	TrainSizes       []int
 	CostVals         []float64
-	LinType          int
+	SolverType       int
 	RandomDataSizeMB int
 	Runmode          RunMode
 	SlurmProject     string
@@ -196,24 +196,26 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 				createFolds.InData().From(shufTrain.OutShuffled())
 				createFolds.InLineCnt().From(cntTrainData.OutLineCount())
 
-				//for _, cost := range params.CostVals {
-				// train_lin = self.new_task('trainlin_fold_%d_cost_%s_%s_%s' % (fold_idx, cost, train_size, replicate_id), TrainLinearModel,
-				//         replicate_id = replicate_id,
-				//         lin_type = self.lin_type,
-				//         lin_cost = cost,
-				// train_lin.in_traindata = create_folds.out_traindata
+				for _, cost := range params.CostVals {
+					trainLibLin := NewTrainLibLinear(wf, fs("trainlin_%02d_%f_%d_%s", foldIdx, cost, trainSize, replID),
+						TrainLibLinearConf{
+							ReplicateID: replID,
+							Cost:        cost,
+							SolverType:  params.SolverType,
+						})
+					trainLibLin.InTrainData().From(createFolds.OutTrainData())
 
-				// pred_lin = self.new_task('predlin_fold_%d_cost_%s_%s_%s' % (fold_idx, cost, train_size, replicate_id), PredictLinearModel,
-				//         replicate_id = replicate_id,
-				// pred_lin.in_model = train_lin.out_model
-				// pred_lin.in_sparse_testdata = create_folds.out_testdata
+					// pred_lin = self.new_task('predlin_fold_%d_cost_%s_%s_%s' % (fold_idx, cost, train_size, replicate_id), PredictLinearModel,
+					//         replicate_id = replicate_id,
+					// pred_lin.in_model = train_lin.out_model
+					// pred_lin.in_sparse_testdata = create_folds.out_testdata
 
-				// assess_lin = self.new_task('assesslin_fold_%d_cost_%s_%s_%s' % (fold_idx, cost, train_size, replicate_id), AssessLinearRMSD,
-				//         lin_cost = cost,
-				// assess_lin.in_model = train_lin.out_model
-				// assess_lin.in_sparse_testdata = create_folds.out_testdata
-				// assess_lin.in_prediction = pred_lin.out_prediction
-				//}
+					// assess_lin = self.new_task('assesslin_fold_%d_cost_%s_%s_%s' % (fold_idx, cost, train_size, replicate_id), AssessLinearRMSD,
+					//         lin_cost = cost,
+					// assess_lin.in_model = train_lin.out_model
+					// assess_lin.in_sparse_testdata = create_folds.out_testdata
+					// assess_lin.in_prediction = pred_lin.out_prediction
+				}
 			}
 		}
 	}
