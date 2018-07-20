@@ -23,16 +23,18 @@ func NewCreateFolds(wf *sp.Workflow, name string, params CreateFoldsConf) *Creat
 		fs(`foldscnt=%d && `, params.FoldsCnt) + "\\\n" +
 		fs(`foldidx=%d && `, params.FoldIdx) + "\\\n" +
 		`linesperfold=$(echo "$linecnt / $foldscnt" | bc) && ` + "\\\n" +
-		`tststart=$(echo "$foldidx * linesperfold" | bc) && ` + "\\\n" +
-		`tstend=$(echo "($foldidx + 1) * linesperfold" | bc) && ` + "\\\n"
+		`tststart=$(echo "$foldidx * $linesperfold" | bc) && ` + "\\\n" +
+		`tstend=$(echo "( $foldidx + 1 ) * $linesperfold" | bc) && ` + "\\\n" +
+		`echo "linecnt:$linecnt, foldscnt:$foldscnt, foldidx:$foldidx, linesperfold:$linesperfold, tststart=$tststart, tstend=$tstend" > {o:foldinfo} && ` + "\\\n"
 
 	// Create train dataset
-	cmd += `awk -v tststart=$tststart -v tstend=$tstend 'NR < tststart || NR > tstend { print }' {i:in} > {o:traindata} && ` + "\\\n"
+	cmd += `awk -v tststart=$tststart -v tstend=$tstend '(NR < tststart || NR >= tstend) { print }' {i:in} > {o:traindata} && ` + "\\\n"
 
 	// Create test dataset
-	cmd += `awk -v tststart=$tststart -v tstend=$tstend 'NR >= tststart && NR <= tstend { print }' {i:in} > {o:testdata}`
+	cmd += `awk -v tststart=$tststart -v tstend=$tstend '(NR >= tststart && NR < tstend) { print }' {i:in} > {o:testdata}`
 
 	p := wf.NewProc(name, cmd)
+	p.SetOut("foldinfo", fs("{i:in}.fld%02d_info", params.FoldIdx))
 	p.SetOut("traindata", fs("{i:in}.fld%02d_trn", params.FoldIdx))
 	p.SetOut("testdata", fs("{i:in}.fld%02d_tst", params.FoldIdx))
 
@@ -57,4 +59,9 @@ func (p *CreateFolds) OutTrainData() *sp.OutPort {
 // OutTestData returns the TestData out-port
 func (p *CreateFolds) OutTestData() *sp.OutPort {
 	return p.Out("testdata")
+}
+
+// OutFoldInfo returns the FoldInfo out-port
+func (p *CreateFolds) OutFoldInfo() *sp.OutPort {
+	return p.Out("foldinfo")
 }
