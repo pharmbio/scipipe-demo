@@ -139,6 +139,7 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 
 		for _, trainSize := range params.TrainSizes {
 			uniq_rt := uniq_r + fs("_tr%d", trainSize)
+			selBestCostPerTrainSizeSubstr := spcomp.NewStreamToSubStream(wf, "selbestcostpertrainsize"+uniq_rt)
 			// ------------------------------------------------------------------------
 			// Sample train and test
 			// ------------------------------------------------------------------------
@@ -191,7 +192,7 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 			// ------------------------------------------------------------------------
 			for _, cost := range params.CostVals {
 				uniq_rtc := uniq_rt + fs("_c%f", cost)
-				costSubStream := spcomp.NewStreamToSubStream(wf, "cost_substr"+uniq_rtc)
+				avgRMSDPerCostSubstr := spcomp.NewStreamToSubStream(wf, "cost_substr"+uniq_rtc)
 
 				for foldIdx := 1; foldIdx <= params.FoldsCount; foldIdx++ {
 					uniq_rtcf := uniq_rtc + fs("_fld%d", foldIdx)
@@ -229,16 +230,27 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 					assessLibLin.InTestData().From(createFolds.OutTestData())
 					assessLibLin.InPrediction().From(predLibLin.OutPrediction())
 
-					costSubStream.In().From(assessLibLin.OutRMSDCost())
+					avgRMSDPerCostSubstr.In().From(assessLibLin.OutRMSDCost())
 				}
 
-				avgRMSD := wf.NewProc("avg_rmsd"+uniq_rtc, "cat {i:rmsdcost|join: } | awk '{ c += $1; n++ } END { print c / n }' > {o:avgrmsd}")
-				avgRMSD.SetOut("avgrmsd", "data/avg_rmsd/avg_rmsd_cost{p:cost}.txt")
+				avgRMSD := wf.NewProc("avg_rmsd"+uniq_rtc, `cat {i:rmsdcost|join: } | awk '{ c += $1; n++ } END { print c / n "\t" {p:cost} }' > {o:avgrmsd}`)
+				avgRMSD.SetOut("avgrmsd", "data/avg_rmsd/avg_rmsd"+uniq_rtc+".txt")
 				avgRMSD.InParam("cost").FromFloat(cost)
-				avgRMSD.In("rmsdcost").From(costSubStream.OutSubStream())
-			}
-		}
-	}
+				avgRMSD.In("rmsdcost").From(avgRMSDPerCostSubstr.OutSubStream())
+
+				selBestCostPerTrainSizeSubstr.In().From(avgRMSD.Out("avgrmsd"))
+			} // end for cost
+			selBestCostPerTrainSize := wf.NewProc("selbestcost"+uniq_rt, `cat {i:rmsdcost|join: } | awk 'BEGIN { rmsd = 1 } ($1 < rmsd) { rmsd = $1; cost = $2 } END { print {p:trainsize} "\t" rmsd "\t" cost }' > {o:bestcost}`)
+			selBestCostPerTrainSize.InParam("trainsize").FromInt(trainSize)
+			selBestCostPerTrainSize.SetOut("bestcost", "data/best_cost/"+fs("trainsize_%d", trainSize)+"/best_cost"+uniq_rt+".txt")
+			selBestCostPerTrainSize.In("rmsdcost").From(selBestCostPerTrainSizeSubstr.OutSubStream())
+
+			// --------------------------------------------------------------------------------
+			// Main training and assessment
+			// --------------------------------------------------------------------------------
+			// TODO: Implement
+		} // end for train size
+	} // end for replicate id
 	return &CrossValidateWorkflow{wf}
 }
 
@@ -246,94 +258,8 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 // End: Main Workflow definition
 // ================================================================================
 
-//                    for cost in costseq:
-//                        tasks[replicate_id][fold_idx][cost] = {}
-
-//                        tasks[replicate_id][fold_idx][cost] = {}
-//                        tasks[replicate_id][fold_idx][cost]['create_folds'] = create_folds
-//                        tasks[replicate_id][fold_idx][cost]['train_linear'] = train_lin
-//                        tasks[replicate_id][fold_idx][cost]['predict_linear'] = pred_lin
-//                        tasks[replicate_id][fold_idx][cost]['assess_linear'] = assess_lin
-//
-//                # Tasks for calculating average RMSD and finding the cost with lowest RMSD
-//                avgrmsd_tasks = {}
-//                for cost in costseq:
-//                    # Calculate the average RMSD for each cost value
-//                    average_rmsd = self.new_task('average_rmsd_cost_%s_%s_%s' % (cost, train_size, replicate_id), CalcAverageRMSDForCost,
-//                            lin_cost=cost)
-//                    average_rmsd.in_assessments = [tasks[replicate_id][fold_idx][cost]['assess_linear'].out_assessment for fold_idx in xrange(self.folds_count)]
-//                    avgrmsd_tasks[cost] = average_rmsd
-
-//                sel_lowest_rmsd = self.new_task('select_lowest_rmsd_%s_%s' % (train_size, replicate_id), SelectLowestRMSD)
-//                sel_lowest_rmsd.in_values = [average_rmsd.out_rmsdavg for average_rmsd in avgrmsd_tasks.values()]
-
-//                run_id = 'mainwfrun_liblinear_%s_tst%s_trn%s_%s' % (self.dataset_name, self.test_size, train_size, replicate_id)
-//                mainwfrun = self.new_task('mainwfrun_%s_%s' % (train_size, replicate_id), MainWorkflowRunner,
-//                        dataset_name=self.dataset_name,
-//                        run_id=run_id,
-//                        replicate_id=replicate_id,
-//                        sampling_method='random',
-//                        train_method='liblinear',
-//                        train_size=train_size,
-//                        test_size=self.test_size,
-//                        lin_type=self.lin_type,
-//                        slurm_project=self.slurm_project,
-//                        parallel_lin_train=False,
-//                        runmode=self.runmode)
-//                mainwfrun.in_lowestrmsd = sel_lowest_rmsd.out_lowest
-
-//                # Collect one lowest rmsd per train size
-//                lowest_rmsds.append(sel_lowest_rmsd)
-//
-//                mainwfruns.append(mainwfrun)
-//
-
 //        mergedreport = self.new_task('merged_report_%s_%s' % (self.dataset_name, self.run_id), MergedDataReport,
 //                run_id = self.run_id)
 //        mergedreport.in_reports = [t.out_report for t in mainwfruns]
 //
 //        return mergedreport
-
-//class MainWorkflowRunner(sciluigi.Task):
-//    # Parameters
-//    dataset_name = luigi.Parameter()
-//    run_id = luigi.Parameter()
-//    replicate_id =luigi.Parameter()
-//    sampling_method = luigi.Parameter()
-//    train_method = luigi.Parameter()
-//    train_size = luigi.Parameter()
-//    test_size = luigi.Parameter()
-//    lin_type = luigi.Parameter()
-//    slurm_project = luigi.Parameter()
-//    parallel_lin_train = luigi.BoolParameter()
-//    runmode = luigi.Parameter()
-//
-//    # In-ports (defined as fields accepting sciluigi.TargetInfo objects)
-//    in_lowestrmsd = None
-//
-//    # Out-ports
-//    def out_done(self):
-//        return sciluigi.TargetInfo(self, self.in_lowestrmsd().path + '.mainwf_done')
-//    def out_report(self):
-//        outf_path = 'data/' + self.run_id + '/testrun_dataset_liblinear_datareport.csv'
-//        return sciluigi.TargetInfo(self, outf_path) # We manually re-create the filename that this should have
-//
-//    # Task implementation
-//    def run(self):
-//        with self.in_lowestrmsd().open() as infile:
-//            records = sciluigi.recordfile_to_dict(infile)
-//            lowest_cost = records['lowest_cost']
-//        self.ex('python wfmm.py' +
-//                ' --dataset-name=%s' % self.dataset_name +
-//                ' --run-id=%s' % self.run_id +
-//                ' --replicate-id=%s' % self.replicate_id +
-//                ' --sampling-method=%s' % self.sampling_method +
-//                ' --train-method=%s' % self.train_method +
-//                ' --train-size=%s' % self.train_size +
-//                ' --test-size=%s' % self.test_size +
-//                ' --lin-type=%s' % self.lin_type +
-//                ' --lin-cost=%s' % lowest_cost +
-//                ' --slurm-project=%s' % self.slurm_project +
-//                ' --runmode=%s' % self.runmode)
-//        with self.out_done().open('w') as donefile:
-//            donefile.write('Done!\n')
