@@ -46,7 +46,8 @@ func main() {
 		Runmode:          RunModeLocal,
 		SlurmProject:     "N/A",
 	})
-	crossValWF.PlotGraphPDF("mmdag.dot")
+	crossValWF.PlotConf.EdgeLabels = false
+	crossValWF.PlotGraph("mmdag.dot")
 	crossValWF.Run()
 }
 
