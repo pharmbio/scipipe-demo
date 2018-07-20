@@ -205,7 +205,9 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 					createFolds.InData().From(shufTrain.OutShuffled())
 					createFolds.InLineCnt().From(cntTrainData.OutLineCount())
 
+					// ----------------------------------------------------------------
 					// Train
+					// ----------------------------------------------------------------
 					trainLibLin := NewTrainLibLinear(wf, "trainlin"+uniq_rtcf,
 						TrainLibLinearConf{
 							ReplicateID: replID,
@@ -214,7 +216,9 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 						})
 					trainLibLin.InTrainData().From(createFolds.OutTrainData())
 
+					// ----------------------------------------------------------------
 					// Predict
+					// ----------------------------------------------------------------
 					predLibLin := NewPredictLibLinear(wf, "predlin"+uniq_rtcf,
 						PredictLibLinearConf{
 							ReplicateID: replID,
@@ -222,7 +226,9 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 					predLibLin.InModel().From(trainLibLin.OutModel())
 					predLibLin.InTestData().From(createFolds.OutTestData())
 
+					// ----------------------------------------------------------------
 					// Assess
+					// ----------------------------------------------------------------
 					assessLibLin := NewAssessLibLinear(wf, "assess"+uniq_rtcf,
 						AssessLibLinearConf{
 							Cost: cost,
