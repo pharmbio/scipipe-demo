@@ -85,7 +85,7 @@ func main() {
 		// --------------------------------------------------------------------------------
 		// Merge BAMs
 		// --------------------------------------------------------------------------------
-		mergeBams := wf.NewProc("merge_bams_"+sampleType, "../"+appsDir+"/samtools-1.3.1/samtools merge -f {o:mergedbam} {i:bams:r: }")
+		mergeBams := wf.NewProc("merge_bams_"+sampleType, "../"+appsDir+"/samtools-1.3.1/samtools merge -f {o:mergedbam} {i:bams|join: }")
 		mergeBams.In("bams").From(streamToSubstream[sampleType].OutSubStream())
 		mergeBams.SetOut("mergedbam", tmpDir+"/"+sampleType+".bam")
 
@@ -136,8 +136,8 @@ func main() {
 			-known ../`+refDir+`/Mills_and_1000G_gold_standard.indels.b37.chr1.vcf.gz \
 			-nWayOut '.real.bam' \
 			&& mv *.md.real.ba* tmp/ # {o:realbamnormal} {o:realbamtumor}`) // Ugly hack to work around the lack of control induced by the -nWayOut way of specifying file name
-	realignIndels.SetPathReplace("bamnormal", "realbamnormal", ".bam", ".real.bam")
-	realignIndels.SetPathReplace("bamtumor", "realbamtumor", ".bam", ".real.bam")
+	realignIndels.SetOut("realbamnormal", "{i:bamnormal|%.bam}.real.bam")
+	realignIndels.SetOut("realbamtumor", "{i:bamtumor|%.bam}.real.bam")
 	realignIndels.In("intervals").From(realignCreateTargets.Out("intervals"))
 	realignIndels.In("bamnormal").From(markDuplicatesProcs["normal"].Out("outbam"))
 	realignIndels.In("bamtumor").From(markDuplicatesProcs["tumor"].Out("outbam"))
