@@ -101,7 +101,7 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 
 	for _, replID := range replicateIds {
 		replID := replID // Create local copy of variable to avoid access to global loop variable from closures
-		uniq_r := fs("_%s", replID)
+		uniqRpl := fs("_%s", replID)
 
 		// ------------------------------------------------------------------------
 		// Generate signatures and filter substances
@@ -130,7 +130,7 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 		// ------------------------------------------------------------------------
 		// Create a unique copy per replicate
 		// ------------------------------------------------------------------------
-		createReplCopy := wf.NewProc("create_replcopy_"+uniq_r, "cp {i:orig} {o:copy} # {p:replid}")
+		createReplCopy := wf.NewProc("create_replcopy_"+uniqRpl, "cp {i:orig} {o:copy} # {p:replid}")
 		createReplCopy.SetOutFunc("copy", func(t *sp.Task) string {
 			origPath := t.InPath("orig")
 			return filepath.Dir(origPath) + "/" + t.Param("replid") + "/" + filepath.Base(origPath)
@@ -139,12 +139,12 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 		createReplCopy.In("orig").From(genSign.OutSignatures())
 
 		for _, trainSize := range params.TrainSizes {
-			uniq_rt := uniq_r + fs("_tr%d", trainSize)
-			selBestCostPerTrainSizeSubstr := spcomp.NewStreamToSubStream(wf, "selbestcostpertrainsize"+uniq_rt)
+			uniqRplTrs := uniqRpl + fs("_tr%d", trainSize)
+			selBestCostPerTrainSizeSubstr := spcomp.NewStreamToSubStream(wf, "selbestcostpertrainsize"+uniqRplTrs)
 			// ------------------------------------------------------------------------
 			// Sample train and test
 			// ------------------------------------------------------------------------
-			sampleTrainTest := NewSampleTrainAndTest(wf, "sample_train_test"+uniq_rt,
+			sampleTrainTest := NewSampleTrainAndTest(wf, "sample_train_test"+uniqRplTrs,
 				SampleTrainAndTestConf{
 					ReplicateID:    replID,
 					SamplingMethod: SamplingMethodRandom,
@@ -156,38 +156,38 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 			// ------------------------------------------------------------------------
 			// Create sparse train dataset
 			// ------------------------------------------------------------------------
-			sparseTrain := NewCreateSparseTrain(wf, "sparsetrain"+uniq_rt, CreateSparseTrainConf{
+			sparseTrain := NewCreateSparseTrain(wf, "sparsetrain"+uniqRplTrs, CreateSparseTrainConf{
 				ReplicateID: replID,
 			})
 			sparseTrain.InTraindata().From(sampleTrainTest.OutTraindata())
 			// Ad-hoc process to un-gzip the sparse train data file
-			gunzipSparseTrain := wf.NewProc("gunzip_sparsetrain"+uniq_rt, "zcat {i:orig} > {o:ungzipped}")
+			gunzipSparseTrain := wf.NewProc("gunzip_sparsetrain"+uniqRplTrs, "zcat {i:orig} > {o:ungzipped}")
 			gunzipSparseTrain.In("orig").From(sparseTrain.OutSparseTraindata())
 			gunzipSparseTrain.SetOut("ungzipped", "{i:orig}.ungz")
 
 			// ------------------------------------------------------------------------
 			// Create sparse test dataset
 			// ------------------------------------------------------------------------
-			sparseTest := NewCreateSparseTest(wf, "sparsetest"+uniq_rt, CreateSparseTestConf{
+			sparseTest := NewCreateSparseTest(wf, "sparsetest"+uniqRplTrs, CreateSparseTestConf{
 				ReplicateID: replID,
 			})
 			sparseTest.InTestdata().From(sampleTrainTest.OutTraindata())
 			sparseTest.InSignatures().From(sparseTrain.OutSignatures())
 			// Ad-hoc process to un-gzip the sparse train data file
-			gunzipSparseTest := wf.NewProc("gunzip_sparsetest"+uniq_rt, "zcat {i:orig} > {o:ungzipped}")
+			gunzipSparseTest := wf.NewProc("gunzip_sparsetest"+uniqRplTrs, "zcat {i:orig} > {o:ungzipped}")
 			gunzipSparseTest.In("orig").From(sparseTest.OutSparseTestdata())
 			gunzipSparseTest.SetOut("ungzipped", "{i:orig}.ungz")
 
 			// ------------------------------------------------------------------------
 			// Count train data
 			// ------------------------------------------------------------------------
-			cntTrainData := NewCountLines(wf, "cnttrain"+uniq_rt, CountLinesConf{})
+			cntTrainData := NewCountLines(wf, "cnttrain"+uniqRplTrs, CountLinesConf{})
 			cntTrainData.InFile().From(gunzipSparseTrain.Out("ungzipped"))
 
 			// ------------------------------------------------------------------------
 			// Generate random data
 			// ------------------------------------------------------------------------
-			genRandBytes := NewGenRandBytes(wf, "genrand"+uniq_rt,
+			genRandBytes := NewGenRandBytes(wf, "genrand"+uniqRplTrs,
 				GenRandBytesConf{
 					SizeMB:      params.RandomDataSizeMB,
 					ReplicateID: replID,
@@ -205,12 +205,12 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 			// Loop over folds
 			// ------------------------------------------------------------------------
 			for _, cost := range params.CostVals {
-				uniq_rtc := uniq_rt + fs("_c%f", cost)
-				avgRMSDPerCostSubstr := spcomp.NewStreamToSubStream(wf, "cost_substr"+uniq_rtc)
+				uniqRplTrsCst := uniqRplTrs + fs("_c%f", cost)
+				avgRMSDPerCostSubstr := spcomp.NewStreamToSubStream(wf, "cost_substr"+uniqRplTrsCst)
 
 				for foldIdx := 1; foldIdx <= params.FoldsCount; foldIdx++ {
-					uniq_rtcf := uniq_rtc + fs("_fld%d", foldIdx)
-					createFolds := NewCreateFolds(wf, "createfolds_"+uniq_rtcf,
+					uniqRplTrsCstFld := uniqRplTrsCst + fs("_fld%d", foldIdx)
+					createFolds := NewCreateFolds(wf, "createfolds"+uniqRplTrsCstFld,
 						CreateFoldsConf{
 							FoldIdx:  foldIdx,
 							FoldsCnt: params.FoldsCount,
@@ -222,7 +222,7 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 					// ----------------------------------------------------------------
 					// Train
 					// ----------------------------------------------------------------
-					trainLibLin := NewTrainLibLinear(wf, "train"+uniq_rtcf,
+					trainLibLin := NewTrainLibLinear(wf, "train"+uniqRplTrsCstFld,
 						TrainLibLinearConf{
 							ReplicateID: replID,
 							Cost:        cost,
@@ -233,7 +233,7 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 					// ----------------------------------------------------------------
 					// Predict
 					// ----------------------------------------------------------------
-					predLibLin := NewPredictLibLinear(wf, "pred"+uniq_rtcf,
+					predLibLin := NewPredictLibLinear(wf, "pred"+uniqRplTrsCstFld,
 						PredictLibLinearConf{
 							ReplicateID: replID,
 						})
@@ -243,7 +243,7 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 					// ----------------------------------------------------------------
 					// Assess
 					// ----------------------------------------------------------------
-					assessLibLin := NewAssessLibLinear(wf, "assess"+uniq_rtcf, AssessLibLinearConf{})
+					assessLibLin := NewAssessLibLinear(wf, "assess"+uniqRplTrsCstFld, AssessLibLinearConf{})
 					assessLibLin.InTestData().From(createFolds.OutTestData())
 					assessLibLin.InPrediction().From(predLibLin.OutPrediction())
 					assessLibLin.InParamCost().FromFloat(cost)
@@ -251,8 +251,8 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 					avgRMSDPerCostSubstr.In().From(assessLibLin.OutRMSDCost())
 				}
 
-				avgRMSD := wf.NewProc("avg_rmsd"+uniq_rtc, `cat {i:rmsdcost|join: } | awk '{ c += $1; n++ } END { print c / n "\t" {p:cost} }' > {o:avgrmsd}`)
-				avgRMSD.SetOut("avgrmsd", "data/avg_rmsd/avg_rmsd"+uniq_rtc+".txt")
+				avgRMSD := wf.NewProc("avg_rmsd"+uniqRplTrsCst, `cat {i:rmsdcost|join: } | awk '{ c += $1; n++ } END { print c / n "\t" {p:cost} }' > {o:avgrmsd}`)
+				avgRMSD.SetOut("avgrmsd", "data/avg_rmsd/avg_rmsd"+uniqRplTrsCst+".txt")
 				avgRMSD.InParam("cost").FromFloat(cost)
 				avgRMSD.In("rmsdcost").From(avgRMSDPerCostSubstr.OutSubStream())
 
@@ -262,12 +262,12 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 			// ----------------------------------------------------------------
 			// Select best cost
 			// ----------------------------------------------------------------
-			selBestCostPerTrainSize := wf.NewProc("selbestcost"+uniq_rt, `cat {i:rmsdcost|join: } | awk 'BEGIN { rmsd = 1 } ($1 < rmsd) { rmsd = $1; cost = $2 } END { print {p:trainsize} "\t" rmsd "\t" cost }' > {o:bestcost}`)
+			selBestCostPerTrainSize := wf.NewProc("selbestcost"+uniqRplTrs, `cat {i:rmsdcost|join: } | awk 'BEGIN { rmsd = 1 } ($1 < rmsd) { rmsd = $1; cost = $2 } END { print {p:trainsize} "\t" rmsd "\t" cost }' > {o:bestcost}`)
 			selBestCostPerTrainSize.InParam("trainsize").FromInt(trainSize)
-			selBestCostPerTrainSize.SetOut("bestcost", "data/best_cost/"+fs("trainsize_%d", trainSize)+"/best_cost"+uniq_rt+".txt")
+			selBestCostPerTrainSize.SetOut("bestcost", "data/best_cost/"+fs("trainsize_%d", trainSize)+"/best_cost"+uniqRplTrs+".txt")
 			selBestCostPerTrainSize.In("rmsdcost").From(selBestCostPerTrainSizeSubstr.OutSubStream())
 
-			costFileToParam := wf.NewProc("cost_filetoparam"+uniq_rt, "# {i:costfile}")
+			costFileToParam := wf.NewProc("cost_filetoparam"+uniqRplTrs, "# {i:costfile}")
 			costFileToParam.InitOutParamPort(costFileToParam, "costparam")
 			costFileToParam.CustomExecute = func(t *sp.Task) {
 				fileBytes := t.InIP("costfile").Read()
@@ -282,17 +282,17 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 			// Main training and assessment
 			// --------------------------------------------------------------------------------
 			// Train
-			trainLibLin := NewTrainLibLinear(wf, "train_final"+uniq_rt,
+			trainLibLin := NewTrainLibLinear(wf, "train_final"+uniqRplTrs,
 				TrainLibLinearConf{
 					ReplicateID: replID,
 					SolverType:  params.SolverType,
 				})
-			trainLibLin.SetOut("model", fs("data/final_models/finalmodel"+uniq_rt+".s%d_c{p:cost}.linmdl", params.SolverType))
+			trainLibLin.SetOut("model", fs("data/final_models/finalmodel"+uniqRplTrs+".s%d_c{p:cost}.linmdl", params.SolverType))
 			trainLibLin.InTrainData().From(gunzipSparseTrain.Out("ungzipped"))
 			trainLibLin.InParam("cost").From(costFileToParam.OutParam("costparam"))
 
 			// Predict
-			predLibLin := NewPredictLibLinear(wf, "pred_final"+uniq_rt,
+			predLibLin := NewPredictLibLinear(wf, "pred_final"+uniqRplTrs,
 				PredictLibLinearConf{
 					ReplicateID: replID,
 				})
@@ -300,7 +300,7 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 			predLibLin.InTestData().From(gunzipSparseTest.Out("ungzipped"))
 
 			// Assess
-			assessLibLin := NewAssessLibLinear(wf, "assess_final"+uniq_rt,
+			assessLibLin := NewAssessLibLinear(wf, "assess_final"+uniqRplTrs,
 				AssessLibLinearConf{})
 			assessLibLin.InTestData().From(gunzipSparseTest.Out("ungzipped"))
 			assessLibLin.InPrediction().From(predLibLin.OutPrediction())
