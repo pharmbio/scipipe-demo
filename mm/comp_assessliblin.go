@@ -12,7 +12,6 @@ type AssessLibLinear struct {
 // AssessLibLinearConf contains parameters for initializing a
 // AssessLibLinear process
 type AssessLibLinearConf struct {
-	Cost float64
 }
 
 // NewAssessLibLinear returns a new AssessLibLinear process
@@ -21,10 +20,15 @@ func NewAssessLibLinear(wf *sp.Workflow, name string, params AssessLibLinearConf
 		`{ sqdiffsum += (pred[FNR]-$1)^2; valcnt++ } ` +
 		`END { rmsd=sqrt(sqdiffsum/valcnt); print rmsd }' ` +
 		`{i:prediction} {i:testdata}) && ` + "\\\n" +
-		fs(`echo "$rmsd	%f" > {o:rmsd_cost}`, params.Cost)
+		`echo "$rmsd	{p:cost}" > {o:rmsd_cost}`
 	p := wf.NewProc(name, cmd)
 	p.SetOut("rmsd_cost", "{i:prediction}.rmsd_cost")
 	return &AssessLibLinear{p}
+}
+
+// InCost returns the cost in-param-port
+func (p *AssessLibLinear) InParamCost() *sp.InParamPort {
+	return p.InParam("cost")
 }
 
 // InTestData returns the TestData in-port

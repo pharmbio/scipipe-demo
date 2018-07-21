@@ -12,51 +12,45 @@ type CreateSparseTest struct {
 // CreateSparseTestConf contains parameters for initializing a
 // CreateSparseTest process
 type CreateSparseTestConf struct {
+	ReplicateID string
 }
 
 // NewCreateSparseTest returns a new CreateSparseTest process
 func NewCreateSparseTest(wf *sp.Workflow, name string, params CreateSparseTestConf) *CreateSparseTest {
-	cmd := ``
+	cmd := `java -jar ../bin/CreateSparseDataset.jar \
+	-inputfile {i:testdata} \
+	-signaturesinfile {i:signaturesinfile} \
+	-datasetfile {o:sparsetest} \
+	-signaturesoutfile {o:signatures} \
+	-silent`
 	p := wf.NewProc(name, cmd)
-	p.SetOut("out", "out.txt")
+	p.SetOut("sparsetest", "{i:testdata}.csr")
+	p.SetOut("signatures", "{i:testdata}.sign")
+	p.SetOut("log", "{i:testdata}.csr.log")
 	return &CreateSparseTest{p}
 }
 
-// InInfile returns the Infile in-port
-func (p *CreateSparseTest) InInfile() *sp.InPort {
-	return p.In("in")
+// InTestdata returns the Testdata in-port
+func (p *CreateSparseTest) InTestdata() *sp.InPort {
+	return p.In("testdata")
 }
 
-// OutOutfile returns the Outfile out-port
-func (p *CreateSparseTest) OutOutfile() *sp.OutPort {
-	return p.Out("out")
+// InSignatures returns the Testdata in-port
+func (p *CreateSparseTest) InSignatures() *sp.InPort {
+	return p.In("signaturesinfile")
 }
 
-//class CreateSparseTestDataset(sl.Task):
-//
-//    # INPUT TARGETS
-//    in_testdata = None
-//    in_signatures = None
-//
-//    # TASK PARAMETERS
-//    replicate_id = luigi.Parameter()
-//    java_path = luigi.Parameter
-//
-//    # DEFINE OUTPUTS
-//    def out_sparse_testdata(self):
-//        return sl.TargetInfo(self, self.get_basepath()+ '.csr')
-//    def out_signatures(self):
-//        return sl.TargetInfo(self, self.get_basepath()+ '.signatures')
-//    def out_log(self):
-//        return sl.TargetInfo(self, self.get_basepath()+ '.csr.log')
-//    def get_basepath(self):
-//        return self.in_testdata().path
-//
-//    # WHAT THE TASK DOES
-//    def run(self):
-//        self.ex(['java', '-jar', 'bin/CreateSparseDataset.jar',
-//                '-inputfile', self.in_testdata().path,
-//                '-signaturesinfile', self.in_signatures().path,
-//                '-datasetfile', self.out_sparse_testdata().path,
-//                '-signaturesoutfile', self.out_signatures().path,
-//                '-silent'])
+// OutSparseTestdata returns the SparseTestdata out-port
+func (p *CreateSparseTest) OutSparseTestdata() *sp.OutPort {
+	return p.Out("sparsetest")
+}
+
+// OutSignatures returns the Signatures out-port
+func (p *CreateSparseTest) OutSignatures() *sp.OutPort {
+	return p.Out("signatures")
+}
+
+// OutLog returns the Log out-port
+func (p *CreateSparseTest) OutLog() *sp.OutPort {
+	return p.Out("log")
+}

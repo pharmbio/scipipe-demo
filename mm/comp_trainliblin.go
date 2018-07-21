@@ -24,8 +24,10 @@ func NewTrainLibLinear(wf *sp.Workflow, name string, params TrainLibLinearConf) 
 	p := wf.NewProc(name, cmd)
 
 	p.InParam("solvertype").FromInt(params.SolverType)
-	p.InParam("cost").FromFloat(params.Cost)
-	p.SetOut("model", fs("{i:traindata}.s%d_c%.04f.linmdl", params.SolverType, params.Cost))
+	if params.Cost != 0 {
+		p.InParam("cost").FromFloat(params.Cost)
+	}
+	p.SetOut("model", fs("{i:traindata}.s%d_c{p:cost}.linmdl", params.SolverType))
 	p.SetOut("traintime", "{o:model}.traintime")
 
 	return &TrainLibLinear{p}
