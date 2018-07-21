@@ -35,10 +35,10 @@ func main() {
 	wf := sp.NewWorkflow("rnaseqpre", *maxTasks)
 
 	downloadApps := wf.NewProc("download_apps", "wget http://uppnex.se/apps.tar.gz -O {o:apps}")
-	downloadApps.SetPathStatic("apps", dataDir+"/apps.tar.gz")
+	downloadApps.SetOut("apps", dataDir+"/apps.tar.gz")
 
 	unTgzApps := wf.NewProc("untgz_apps", "tar -zxvf {i:tgz} -C "+dataDir+" && echo untar_done > {o:done}")
-	unTgzApps.SetPathStatic("done", dataDir+"/apps/done.flag")
+	unTgzApps.SetOut("done", dataDir+"/apps/done.flag")
 	unTgzApps.In("tgz").From(downloadApps.Out("apps"))
 
 	// ----------------------------------------------------------------------------
@@ -49,7 +49,7 @@ func main() {
 	starIndex := refDir + "/star"
 
 	// Init some process "holders"
-	streamToSubstream := map[string]*spcomp.StreamToSubStream{}
+	strToSubstrs := map[string]*spcomp.StreamToSubStream{}
 	starProcs := map[string]*sp.Process{}
 	// samtoolsProcs := map[string]*sp.Process{}
 	// qualimapProcs := map[string]*sp.Process{}
@@ -62,7 +62,7 @@ func main() {
 
 		i = i
 
-		streamToSubstream[samplePrefix] = spcomp.NewStreamToSubStream(wf, "stream_to_substream_"+samplePrefix)
+		strToSubstrs[samplePrefix] = spcomp.NewStreamToSubStream(wf, "collect_substream_"+samplePrefix)
 		for j := 1; j <= 2; j++ {
 
 			sj := strconv.Itoa(j)
@@ -78,11 +78,12 @@ func main() {
 				"../"+appsDir+"/FastQC-0.11.5/fastqc {i:reads} -o "+tmpDir+"/rnaseqpre/fastqc && echo fastqc_done > {o:done} # {i:untardone}")
 			fastQSamples.In("reads").From(readsSourceFastQ.Out())
 			fastQSamples.In("untardone").From(unTgzApps.Out("done"))
-			fastQSamples.SetPathCustom("done", func(t *sp.Task) string {
+			fastQSamples.SetOutFunc("done", func(t *sp.Task) string {
 				return tmpDir + "/rnaseqpre/fastqc/done.flag" // .tmp not removed?
 			})
 
-			streamToSubstream[samplePrefix][j].In().From(fastQSamples.Out("done")) }
+			strToSubstrs[samplePrefix].In().From(fastQSamples.Out("done"))
+		}
 
 		// --------------------------------------------------------------------------------
 		// Align samples
@@ -97,51 +98,14 @@ func main() {
 
 		alignSamples.In("reads1").From(readsSourceFastQ1.Out())
 		alignSamples.In("reads2").From(readsSourceFastQ2.Out())
-		alignSamples.In("fastqc").From(streamToSubstream[samplePrefix].OutSubStream())
+		alignSamples.In("fastqc").From(strToSubstrs[samplePrefix].OutSubStream())
 
-		alignSamples.SetPathStatic("bam_aligned", tmpDir+"/rnaseqpre/star/"+samplePrefix+".chr11.bam")
+		alignSamples.SetOut("bam_aligned", tmpDir+"/rnaseqpre/star/"+samplePrefix+".chr11.bam")
 		starProcs[samplePrefix] = alignSamples
-
-
 
 		// STRINGTIE PER SAMPLE
 
-
-
-	// STRINGTIE MERGE, once for all samples
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+		// STRINGTIE MERGE, once for all samples
 
 		// 	// --------------------------------------------------------------------------------
 		// 	// Mark Duplicates
@@ -156,7 +120,7 @@ func main() {
 		// 			CREATE_INDEX=TRUE \
 		// 			OUTPUT={o:bam}; \
 		// 			mv `+tmpDir+`/`+sampleType+`_`+si+`.md{.bam.tmp,}.bai;`)
-		// 	markDuplicates.SetPathStatic("bam", tmpDir+"/"+sampleType+"_"+si+".md.bam")
+		// 	markDuplicates.SetOut("bam", tmpDir+"/"+sampleType+"_"+si+".md.bam")
 		// 	markDuplicates.In("bam").From(mergeBams.Out("mergedbam"))
 		// 	// Save in map for later use
 		// 	markDuplicatesProcs[sampleType] = markDuplicates
@@ -176,7 +140,7 @@ func main() {
 		// 			-XL hs37d5 \
 		// 			-XL NC_007605 \
 		// 			-o {o:intervals} && sleep 5`)
-		// realignCreateTargets.SetPathStatic("intervals", tmpDir+"/tiny.intervals")
+		// realignCreateTargets.SetOut("intervals", tmpDir+"/tiny.intervals")
 		// realignCreateTargets.In("bamnormal").From(markDuplicatesProcs["normal"].Out("bam"))
 		// realignCreateTargets.In("bamtumor").From(markDuplicatesProcs["tumor"].Out("bam"))
 
@@ -195,8 +159,8 @@ func main() {
 		// 		-XL NC_007605 \
 		// 		-nWayOut '.real.bam' \
 		// 		&& sleep 5 && for f in *md.real.bam; do mv "$f" "$f.tmp"; done && mv *.md.real.ba* tmp/ # {o:realbamnormal} {o:realbamtumor}`) // Ugly hack to work around the lack of control induced by the -nWayOut way of specifying file name
-		// realignIndels.SetPathReplace("bamnormal", "realbamnormal", ".bam", ".real.bam")
-		// realignIndels.SetPathReplace("bamtumor", "realbamtumor", ".bam", ".real.bam")
+		// realignIndels.SetOut("realbamnormal", "{i:bamnormal|%.bam}.real.bam")
+		// realignIndels.SetOut("realbamtumor", "{i:bamtumor|%.bam}.real.bam")
 		// realignIndels.In("intervals").From(realignCreateTargets.Out("intervals"))
 		// realignIndels.In("bamnormal").From(markDuplicatesProcs["normal"].Out("bam"))
 		// realignIndels.In("bamtumor").From(markDuplicatesProcs["tumor"].Out("bam"))
@@ -218,7 +182,7 @@ func main() {
 		// 			-XL NC_007605 \
 		// 			-l INFO \
 		// 			-o {o:recaltable} && sleep 5`)
-		// 	reCalibrate.SetPathStatic("recaltable", tmpDir+"/"+sampleType+".recal.table")
+		// 	reCalibrate.SetOut("recaltable", tmpDir+"/"+sampleType+".recal.table")
 		// 	reCalibrate.In("realbam").From(realignIndels.Out("realbam" + sampleType))
 
 		// 	// Print reads
@@ -233,7 +197,7 @@ func main() {
 		// 			-o {o:recalbam} \
 		// 			&& fname={o:recalbam} \
 		// 			&& mv $fname".bai" ${fname%.bam.tmp}.bai && sleep 5`)
-		// 	printReads.SetPathStatic("recalbam", sampleType+".recal.bam")
+		// 	printReads.SetOut("recalbam", sampleType+".recal.bam")
 		// 	printReads.In("realbam").From(realignIndels.Out("realbam" + sampleType))
 		// 	printReads.In("recaltable").From(reCalibrate.Out("recaltable"))
 	}
@@ -251,9 +215,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	if *graph {
-		wf.PlotGraph("rnaseq.dot", true, true)
-	} else {
-		wf.RunToRegex(*procsRegex)
-	}
+	wf.PlotGraph("rnaseq.dot")
+	wf.RunToRegex(*procsRegex)
 }
