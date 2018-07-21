@@ -47,7 +47,7 @@ func main() {
 		Runmode:          RunModeLocal,
 		SlurmProject:     "N/A",
 	})
-	crossValWF.PlotConf.EdgeLabels = false
+	//crossValWF.PlotConf.EdgeLabels = fals
 	crossValWF.PlotGraph("mmdag.dot")
 	crossValWF.Run()
 }
@@ -87,7 +87,7 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 
 	mmTestData := spcomp.NewFileSource(
 		wf,
-		"mmTestData",
+		"testdata",
 		fs("data/%s.smi", params.DatasetName))
 
 	//procs := []sp.WorkflowProcess{}
@@ -106,7 +106,7 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 		// ------------------------------------------------------------------------
 		// Generate signatures and filter substances
 		// ------------------------------------------------------------------------
-		genSign := NewGenSignFilterSubst(wf, "gensign"+uniq_r,
+		genSign := NewGenSignFilterSubst(wf, "gensign"+uniqRpl,
 			GenSignFilterSubstConf{
 				replicateID: replID,
 				threadsCnt:  8,
@@ -118,7 +118,7 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 		// ------------------------------------------------------------------------
 		// Create a unique copy per run
 		// ------------------------------------------------------------------------
-		createRunCopy := wf.NewProc("create_runcopy"+uniq_r, "cp {i:orig} {o:copy} # {p:runid}")
+		createRunCopy := wf.NewProc("create_runcopy"+uniqRpl, "cp {i:orig} {o:copy} # {p:runid}")
 		createRunCopy.SetOut("copy", fs("%s/{i:orig}", params.RunID))
 		createRunCopy.SetOutFunc("copy", func(t *sp.Task) string {
 			origPath := t.InPath("orig")
@@ -140,7 +140,7 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 
 		for _, trainSize := range params.TrainSizes {
 			uniqRplTrs := uniqRpl + fs("_tr%d", trainSize)
-			selBestCostPerTrainSizeSubstr := spcomp.NewStreamToSubStream(wf, "selbestcostpertrainsize"+uniqRplTrs)
+			selBestCostPerTrainSizeSubstr := spcomp.NewStreamToSubStream(wf, "select_cost"+uniqRplTrs)
 			// ------------------------------------------------------------------------
 			// Sample train and test
 			// ------------------------------------------------------------------------
@@ -197,7 +197,7 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 			// ------------------------------------------------------------------------
 			// Shuffle train data
 			// ------------------------------------------------------------------------
-			shufTrain := NewShuffleLines(wf, fs("shuftrain_%d_%s", trainSize, replID), ShuffleLinesConf{})
+			shufTrain := NewShuffleLines(wf, "shuftrain"+uniqRplTrs, ShuffleLinesConf{})
 			shufTrain.InData().From(gunzipSparseTrain.Out("ungzipped"))
 			shufTrain.InRandBytes().From(genRandBytes.OutRandBytes())
 
@@ -264,7 +264,7 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 			// ----------------------------------------------------------------
 			selBestCostPerTrainSize := wf.NewProc("selbestcost"+uniqRplTrs, `cat {i:rmsdcost|join: } | awk 'BEGIN { rmsd = 1 } ($1 < rmsd) { rmsd = $1; cost = $2 } END { print {p:trainsize} "\t" rmsd "\t" cost }' > {o:bestcost}`)
 			selBestCostPerTrainSize.InParam("trainsize").FromInt(trainSize)
-			selBestCostPerTrainSize.SetOut("bestcost", "data/best_cost/"+fs("trainsize_%d", trainSize)+"/best_cost"+uniqRplTrs+".txt")
+			selBestCostPerTrainSize.SetOut("bestcost", "data/best_cost/"+uniqRplTrs+"/best_cost"+uniqRplTrs+".txt")
 			selBestCostPerTrainSize.In("rmsdcost").From(selBestCostPerTrainSizeSubstr.OutSubStream())
 
 			costFileToParam := wf.NewProc("cost_filetoparam"+uniqRplTrs, "# {i:costfile}")
