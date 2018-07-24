@@ -10,6 +10,8 @@ package main
 // --------------------------------------------------------------------------------
 
 import (
+	"flag"
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -21,16 +23,21 @@ const (
 	dataDir = "data/"
 )
 
+var (
+	plot = flag.Bool("plot", false, "Plot the workflow graph in (GraphViz) dot format")
+)
+
 func main() {
-	dlWf := sp.NewWorkflow("download_jars", 2)
-	downloadJars := dlWf.NewProc("download_jars", "wget https://ndownloader.figshare.com/files/6330402 -O {o:tarball}")
-	downloadJars.SetOut("tarball", "jars.tar.gz")
-	unpackJars := dlWf.NewProc("unpack_jars", "mkdir {o:unpackdir} && tar -zxf {i:tarball} -C {o:unpackdir}")
+	flag.Parse()
+
+	dlWf := sp.NewWorkflow("download_tools_wf", 2)
+	downloadTools := dlWf.NewProc("download_tools", "wget https://ndownloader.figshare.com/files/6330402 -O {o:tarball}")
+	downloadTools.SetOut("tarball", "jars.tar.gz")
+	unpackJars := dlWf.NewProc("unpack_tools", "mkdir {o:unpackdir} && tar -zxf {i:tarball} -C {o:unpackdir}")
 	unpackJars.SetOut("unpackdir", "bin")
-	unpackJars.In("tarball").From(downloadJars.Out("tarball"))
+	unpackJars.In("tarball").From(downloadTools.Out("tarball"))
 	downloadRawData := dlWf.NewProc("download_rawdata", "wget https://raw.githubusercontent.com/pharmbio/bioimg-sciluigi-casestudy/master/roles/sciluigi_usecase/files/proj/largescale_svm/data/testrun_dataset.smi -O {o:dataset}")
 	downloadRawData.SetOut("dataset", dataDir+"testdataset.smi")
-	dlWf.Run()
 
 	crossValWF := NewCrossValidateWorkflow(4, CrossValidateWorkflowParams{
 		DatasetName:      "testdataset",
@@ -47,8 +54,14 @@ func main() {
 		Runmode:          RunModeLocal,
 		SlurmProject:     "N/A",
 	})
-	//crossValWF.PlotConf.EdgeLabels = fals
-	crossValWF.PlotGraph("mmdag.dot")
+	if *plot {
+		//crossValWF.PlotConf.EdgeLabels = fals
+		graphFile := "mmdag.dot"
+		fmt.Println("Writing workflow graph to: " + graphFile)
+		crossValWF.PlotGraph(graphFile)
+		return
+	}
+	dlWf.Run()
 	crossValWF.Run()
 }
 
