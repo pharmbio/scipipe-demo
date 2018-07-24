@@ -12,7 +12,7 @@ import (
 )
 
 var (
-	maxTasks   = flag.Int("maxtasks", 4, "Max number of local cores to use")
+	maxTasks   = flag.Int("maxtasks", 2, "Max number of local cores to use")
 	procsRegex = flag.String("procs", "print_reads.*", "A regex specifying which processes (by name) to run up to")
 )
 

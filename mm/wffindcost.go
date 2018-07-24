@@ -24,13 +24,14 @@ const (
 )
 
 var (
-	plot = flag.Bool("plot", false, "Plot the workflow graph in (GraphViz) dot format")
+	plot     = flag.Bool("plot", false, "Plot the workflow graph in (GraphViz) dot format")
+	maxtasks = flag.Int("maxtasks", 2, "Number of concurrent tasks to run, which should probably correspond roughly to the number of CPU maxtasks.")
 )
 
 func main() {
 	flag.Parse()
 
-	dlWf := sp.NewWorkflow("download_tools_wf", 2)
+	dlWf := sp.NewWorkflow("download_tools_wf", *maxtasks)
 	downloadTools := dlWf.NewProc("download_tools", "wget https://ndownloader.figshare.com/files/6330402 -O {o:tarball}")
 	downloadTools.SetOut("tarball", "jars.tar.gz")
 	unpackJars := dlWf.NewProc("unpack_tools", "mkdir {o:unpackdir} && tar -zxf {i:tarball} -C {o:unpackdir}")
@@ -39,7 +40,7 @@ func main() {
 	downloadRawData := dlWf.NewProc("download_rawdata", "wget https://raw.githubusercontent.com/pharmbio/bioimg-sciluigi-casestudy/master/roles/sciluigi_usecase/files/proj/largescale_svm/data/testrun_dataset.smi -O {o:dataset}")
 	downloadRawData.SetOut("dataset", dataDir+"testdataset.smi")
 
-	crossValWF := NewCrossValidateWorkflow(4, CrossValidateWorkflowParams{
+	crossValWF := NewCrossValidateWorkflow(*maxtasks, CrossValidateWorkflowParams{
 		DatasetName:      "testdataset",
 		RunID:            "testrun",
 		ReplicateID:      "r1",
