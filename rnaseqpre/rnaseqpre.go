@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"sort"
 	"strconv"
@@ -26,7 +27,6 @@ func main() {
 	refDir := appsDir + "/ref"
 	origDataDir := appsDir + "/data"
 	dataDir := "data"
-	smaxTasks := strconv.Itoa(*maxTasks)
 
 	// ----------------------------------------------------------------------------
 	// Data Download part of the workflow
@@ -56,11 +56,9 @@ func main() {
 	// featurecountsProcs := map[string]*sp.Process{}
 	// multiqcProcs := map[string]*sp.Process{}
 
-	for i, samplePrefix := range samplePrefixes {
+	for _, samplePrefix := range samplePrefixes {
 		samplePrefix := samplePrefix // Create local copy of variable. Needed to work around Go's funny behaviour of closures on loop variables
 		// si := strconv.Itoa(i)
-
-		i = i
 
 		strToSubstrs[samplePrefix] = spcomp.NewStreamToSubStream(wf, "collect_substream_"+samplePrefix)
 		for j := 1; j <= 2; j++ {
@@ -68,8 +66,8 @@ func main() {
 			sj := strconv.Itoa(j)
 
 			// define input file
-			fastqPath := origDataDir + "/" + samplePrefix + "_" + sj + ".chr11.fq.gz"
-			readsSourceFastQ := spcomp.NewFileSource(wf, "fastqFile_fastqc_"+samplePrefix+"_"+sj, fastqPath)
+			readsSourceFastQPath := origDataDir + "/" + samplePrefix + "_" + sj + ".chr11.fq.gz"
+			readsSourceFastQ := spcomp.NewFileSource(wf, "fastqFile_fastqc_"+samplePrefix+"_"+sj, readsSourceFastQPath)
 
 			// --------------------------------------------------------------------------------
 			// Quality reporting
@@ -79,7 +77,7 @@ func main() {
 			fastQSamples.In("reads").From(readsSourceFastQ.Out())
 			fastQSamples.In("untardone").From(unTgzApps.Out("done"))
 			fastQSamples.SetOutFunc("done", func(t *sp.Task) string {
-				return tmpDir + "/rnaseqpre/fastqc/done.flag" // .tmp not removed?
+				return tmpDir + "/rnaseqpre/fastqc/done.flag"
 			})
 
 			strToSubstrs[samplePrefix].In().From(fastQSamples.Out("done"))
@@ -94,112 +92,24 @@ func main() {
 		readsSourceFastQ1 := spcomp.NewFileSource(wf, "fastqFile_align_"+samplePrefix+"_1.chr11.fq.gz", fastqPath1)
 		readsSourceFastQ2 := spcomp.NewFileSource(wf, "fastqFile_align_"+samplePrefix+"_2.chr11.fq.gz", fastqPath2)
 
-		alignSamples := wf.NewProc("align_samples_"+samplePrefix, "../"+appsDir+"/STAR-2.5.3a/STAR --genomeDir ../"+starIndex+" --readFilesIn {i:reads1} {i:reads2} --runThreadN "+smaxTasks+" --readFilesCommand zcat --outFileNamePrefix ../"+tmpDir+"/rnaseqpre/star/"+samplePrefix+".chr11. --outSAMtype BAM SortedByCoordinate # {i:fastqc} {o:bam_aligned}")
-
+		alignSamples := wf.NewProc("align_samples_"+samplePrefix,
+			"../"+appsDir+"/STAR-2.5.3a/STAR"+
+				" --genomeDir ../"+starIndex+
+				" --readFilesIn {i:reads1} {i:reads2}"+
+				fs(" --runThreadN %d ", *maxTasks)+
+				" --readFilesCommand zcat "+
+				" --outFileNamePrefix ../"+tmpDir+"/rnaseqpre/star/"+samplePrefix+".chr11. "+
+				" --outSAMtype BAM SortedByCoordinate # {i:fastqc|join: } {o:bam_aligned}")
 		alignSamples.In("reads1").From(readsSourceFastQ1.Out())
 		alignSamples.In("reads2").From(readsSourceFastQ2.Out())
 		alignSamples.In("fastqc").From(strToSubstrs[samplePrefix].OutSubStream())
-
 		alignSamples.SetOut("bam_aligned", tmpDir+"/rnaseqpre/star/"+samplePrefix+".chr11.bam")
+
 		starProcs[samplePrefix] = alignSamples
 
 		// STRINGTIE PER SAMPLE
 
 		// STRINGTIE MERGE, once for all samples
-
-		// 	// --------------------------------------------------------------------------------
-		// 	// Mark Duplicates
-		// 	// --------------------------------------------------------------------------------
-		// 	markDuplicates := wf.NewProc("mark_dupes_"+sampleType,
-		// 		`java -Xmx15g -jar `+"../"+appsDir+`/picard-tools-1.118/MarkDuplicates.jar \
-		// 			INPUT={i:bam} \
-		// 			METRICS_FILE=`+tmpDir+`/`+sampleType+`_`+si+`.md.bam \
-		// 			TMP_DIR=`+tmpDir+` \
-		// 			ASSUME_SORTED=true \
-		// 			VALIDATION_STRINGENCY=LENIENT \
-		// 			CREATE_INDEX=TRUE \
-		// 			OUTPUT={o:bam}; \
-		// 			mv `+tmpDir+`/`+sampleType+`_`+si+`.md{.bam.tmp,}.bai;`)
-		// 	markDuplicates.SetOut("bam", tmpDir+"/"+sampleType+"_"+si+".md.bam")
-		// 	markDuplicates.In("bam").From(mergeBams.Out("mergedbam"))
-		// 	// Save in map for later use
-		// 	markDuplicatesProcs[sampleType] = markDuplicates
-		// }
-
-		// // --------------------------------------------------------------------------------
-		// // Re-align Reads - Create Targets
-		// // --------------------------------------------------------------------------------
-		// realignCreateTargets := wf.NewProc("realign_create_targets",
-		// 	`java -Xmx3g -jar `+"../"+appsDir+`/gatk/GenomeAnalysisTK.jar -T RealignerTargetCreator  \
-		// 			-I {i:bamnormal} \
-		// 			-I {i:bamtumor} \
-		// 			-R `+refDir+`/human_g1k_v37_decoy.fasta \
-		// 			-known `+refDir+`/1000G_phase1.indels.b37.vcf \
-		// 			-known `+refDir+`/Mills_and_1000G_gold_standard.indels.b37.vcf \
-		// 			-nt 4 \
-		// 			-XL hs37d5 \
-		// 			-XL NC_007605 \
-		// 			-o {o:intervals} && sleep 5`)
-		// realignCreateTargets.SetOut("intervals", tmpDir+"/tiny.intervals")
-		// realignCreateTargets.In("bamnormal").From(markDuplicatesProcs["normal"].Out("bam"))
-		// realignCreateTargets.In("bamtumor").From(markDuplicatesProcs["tumor"].Out("bam"))
-
-		// // --------------------------------------------------------------------------------
-		// // Re-align Reads - Re-align Indels
-		// // --------------------------------------------------------------------------------
-		// realignIndels := wf.NewProc("realign_indels",
-		// 	`java -Xmx3g -jar `+"../"+appsDir+`/gatk/GenomeAnalysisTK.jar -T IndelRealigner \
-		// 		-I {i:bamnormal} \
-		// 		-I {i:bamtumor} \
-		// 		-R `+refDir+`/human_g1k_v37_decoy.fasta \
-		// 		-targetIntervals {i:intervals} \
-		// 		-known `+refDir+`/1000G_phase1.indels.b37.vcf \
-		// 		-known `+refDir+`/Mills_and_1000G_gold_standard.indels.b37.vcf \
-		// 		-XL hs37d5 \
-		// 		-XL NC_007605 \
-		// 		-nWayOut '.real.bam' \
-		// 		&& sleep 5 && for f in *md.real.bam; do mv "$f" "$f.tmp"; done && mv *.md.real.ba* tmp/ # {o:realbamnormal} {o:realbamtumor}`) // Ugly hack to work around the lack of control induced by the -nWayOut way of specifying file name
-		// realignIndels.SetOut("realbamnormal", "{i:bamnormal|%.bam}.real.bam")
-		// realignIndels.SetOut("realbamtumor", "{i:bamtumor|%.bam}.real.bam")
-		// realignIndels.In("intervals").From(realignCreateTargets.Out("intervals"))
-		// realignIndels.In("bamnormal").From(markDuplicatesProcs["normal"].Out("bam"))
-		// realignIndels.In("bamtumor").From(markDuplicatesProcs["tumor"].Out("bam"))
-
-		// // --------------------------------------------------------------------------------
-		// // Re-calibrate reads
-		// // --------------------------------------------------------------------------------
-		// for _, sampleType := range []string{"normal", "tumor"} {
-		// 	// Re-calibrate
-		// 	reCalibrate := wf.NewProc("recalibrate_"+sampleType,
-		// 		`java -Xmx3g -Djava.io.tmpdir=`+tmpDir+` -jar `+"../"+appsDir+`/gatk/GenomeAnalysisTK.jar -T BaseRecalibrator \
-		// 			-R `+refDir+`/human_g1k_v37_decoy.fasta \
-		// 			-I {i:realbam} \
-		// 			-knownSites `+refDir+`/dbsnp_138.b37.vcf \
-		// 			-knownSites `+refDir+`/1000G_phase1.indels.b37.vcf \
-		// 			-knownSites `+refDir+`/Mills_and_1000G_gold_standard.indels.b37.vcf \
-		// 			-nct 4 \
-		// 			-XL hs37d5 \
-		// 			-XL NC_007605 \
-		// 			-l INFO \
-		// 			-o {o:recaltable} && sleep 5`)
-		// 	reCalibrate.SetOut("recaltable", tmpDir+"/"+sampleType+".recal.table")
-		// 	reCalibrate.In("realbam").From(realignIndels.Out("realbam" + sampleType))
-
-		// 	// Print reads
-		// 	printReads := wf.NewProc("print_reads_"+sampleType,
-		// 		`java -Xmx3g -jar `+"../"+appsDir+`/gatk/GenomeAnalysisTK.jar -T PrintReads \
-		// 			-R `+refDir+`/human_g1k_v37_decoy.fasta \
-		// 			-nct 4 \
-		// 			-I {i:realbam} \
-		// 			-XL hs37d5 \
-		// 			-XL NC_007605 \
-		// 			--BQSR {i:recaltable} \
-		// 			-o {o:recalbam} \
-		// 			&& fname={o:recalbam} \
-		// 			&& mv $fname".bai" ${fname%.bam.tmp}.bai && sleep 5`)
-		// 	printReads.SetOut("recalbam", sampleType+".recal.bam")
-		// 	printReads.In("realbam").From(realignIndels.Out("realbam" + sampleType))
-		// 	printReads.In("recaltable").From(reCalibrate.Out("recaltable"))
 	}
 
 	// Handle missing flags
@@ -220,4 +130,10 @@ func main() {
 		return
 	}
 	wf.RunToRegex(*procsRegex)
+}
+
+// fs is a short-hand for fmt.Sprintf(), to make string interpolation code less
+// verbose and more readable
+func fs(fmtString string, v ...interface{}) string {
+	return fmt.Sprintf(fmtString, v...)
 }
