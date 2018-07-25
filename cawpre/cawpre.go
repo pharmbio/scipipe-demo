@@ -14,6 +14,7 @@ import (
 var (
 	maxTasks   = flag.Int("maxtasks", 2, "Max number of local cores to use")
 	procsRegex = flag.String("procs", "print_reads.*", "A regex specifying which processes (by name) to run up to")
+	plot       = flag.Bool("plot", false, "Plot graph to a .dot file, and nothing more")
 )
 
 func main() {
@@ -187,5 +188,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	if *plot {
+		wf.PlotGraph("cawpre.dot")
+		return
+	}
 	wf.RunToRegex(*procsRegex)
 }

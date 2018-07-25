@@ -12,7 +12,7 @@ import (
 )
 
 var (
-	graph      = flag.Bool("graph", false, "Plot graph and nothing more")
+	plot       = flag.Bool("plot", false, "Plot graph and nothing more")
 	maxTasks   = flag.Int("maxtasks", 4, "Max number of local cores to use")
 	procsRegex = flag.String("procs", "align.*", "A regex specifying which processes (by name) to run up to")
 )
@@ -215,6 +215,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	wf.PlotGraph("rnaseq.dot")
+	if *plot {
+		wf.PlotGraph("rnaseqpre.dot")
+		return
+	}
 	wf.RunToRegex(*procsRegex)
 }
