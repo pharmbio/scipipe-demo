@@ -93,13 +93,13 @@ func main() {
 		readsSourceFastQ2 := spcomp.NewFileSource(wf, "fastqFile_align_"+samplePrefix+"_2.chr11.fq.gz", fastqPath2)
 
 		alignSamples := wf.NewProc("align_samples_"+samplePrefix,
-			"../"+appsDir+"/STAR-2.5.3a/STAR"+
+			"../"+appsDir+"/STAR-2.5.3a/STAR \\\n"+
 				" --genomeDir ../"+starIndex+
-				" --readFilesIn {i:reads1} {i:reads2}"+
-				fs(" --runThreadN %d ", *maxTasks)+
-				" --readFilesCommand zcat "+
-				" --outFileNamePrefix ../"+tmpDir+"/rnaseqpre/star/"+samplePrefix+".chr11. "+
-				" --outSAMtype BAM SortedByCoordinate # {i:fastqc|join: } {o:bam_aligned}")
+				" --readFilesIn {i:reads1} {i:reads2} \\\n"+
+				fs(" --runThreadN %d \\\n", *maxTasks)+
+				" --readFilesCommand zcat \\\n"+
+				" --outFileNamePrefix $(s={o:bam_aligned}; echo ${s%.bam}) \\\n"+
+				" --outSAMtype BAM SortedByCoordinate && echo done > {o:bam_aligned}.done # {i:fastqc|join: } ")
 		alignSamples.In("reads1").From(readsSourceFastQ1.Out())
 		alignSamples.In("reads2").From(readsSourceFastQ2.Out())
 		alignSamples.In("fastqc").From(strToSubstrs[samplePrefix].OutSubStream())
