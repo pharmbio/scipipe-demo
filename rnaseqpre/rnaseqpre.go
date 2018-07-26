@@ -126,7 +126,9 @@ func main() {
 	}
 
 	if *plot {
-		wf.PlotGraph("rnaseqpre.dot")
+		dotFile := "rnaseqpre.dot"
+		wf.PlotGraph(dotFile)
+		fmt.Println("Wrote workflow graph to:", dotFile)
 		return
 	}
 	wf.RunToRegex(*procsRegex)
