@@ -46,13 +46,9 @@ func main() {
 	// refGTF := refDir + "/human_g1k_v37_decoy.fasta"
 	starIndex := refDir + "/star"
 
-	// Init some process "holders"
+	// Init process "holders"
 	strToSubstrs := map[string]*spcomp.StreamToSubStream{}
-	starProcs := map[string]*sp.Process{}
-	// samtoolsProcs := map[string]*sp.Process{}
-	// qualimapProcs := map[string]*sp.Process{}
-	// featurecountsProcs := map[string]*sp.Process{}
-	// multiqcProcs := map[string]*sp.Process{}
+	featureCountsProcs := []*sp.Process{}
 
 	for _, samplePrefix := range samplePrefixes {
 		samplePrefix := samplePrefix // Create local copy of variable. Needed to work around Go's funny behaviour of closures on loop variables
@@ -103,8 +99,6 @@ func main() {
 		alignSamples.In("fastqc").From(strToSubstrs[samplePrefix].OutSubStream())
 		alignSamples.SetOut("bam_aligned", tmpDir+"/rnaseqpre/star/"+samplePrefix+".chr11.Aligned.sortedByCoord.out.bam")
 
-		starProcs[samplePrefix] = alignSamples
-
 		createIndex := wf.NewProc("create_index_"+samplePrefix, `../`+appsDir+`/samtools-1.3.1/samtools index {i:bam_aligned}`)
 		createIndex.SetOut("index", "{i:bam_aligned}.bai")
 		createIndex.In("bam_aligned").From(alignSamples.Out("bam_aligned"))
@@ -128,10 +122,23 @@ func main() {
 		countFeatures.In("bam_aligned").From(alignSamples.Out("bam_aligned"))
 		countFeatures.In("index").From(createIndex.Out("index"))
 		countFeatures.SetOut("feature_counts", tmpDir+`/rnaseqpre/featurecounts/tableCounts`)
+
+		featureCountsProcs = append(featureCountsProcs, countFeatures)
 	}
-	// # MultiQC
-	// export PYTHONPATH=$appsDir/MultiQC-1.5/lib/python2.7/site-packages:$PYTHONPATH
-	// $appsDir/MultiQC-1.5/bin/multiqc -f -d $tmpDir/rnaseqpre/ -o $tmpDir/rnaseqpre/multiqc
+
+	// Join feature count outputs into a substream to be joined in multiQC
+	featureCountS2SS := spcomp.NewStreamToSubStream(wf, "featcnt_s2ss")
+	for _, p := range featureCountsProcs {
+		featureCountS2SS.In().From(p.Out("feature_counts"))
+	}
+
+	// MultiQC
+	multiQC := wf.NewProc("create_multiqc_report", `export PYTHONPATH=../`+appsDir+`/MultiQC-1.5/lib/python2.7/site-packages:$PYTHONPATH && \
+		../`+appsDir+`/MultiQC-1.5/bin/multiqc -f \
+		-d ../`+tmpDir+`/rnaseqpre/ \
+		-o $(o={o:report}; echo ${o%/multiqc_report.html}) # Depend: {i:count_features|join: }`)
+	multiQC.In("count_features").From(featureCountS2SS.OutSubStream())
+	multiQC.SetOut("report", tmpDir+"/rnaseqpre/multiqc/multiqc_report.html")
 
 	// Handle missing flags
 	procNames := []string{}
