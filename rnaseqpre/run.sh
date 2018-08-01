@@ -1,2 +1,2 @@
 #!/bin/bash
-go run rnaseqprewf.go -procs "create_index.*"
+go run rnaseqprewf.go

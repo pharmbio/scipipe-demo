@@ -3,19 +3,17 @@ package main
 import (
 	"flag"
 	"fmt"
-	"os"
 	"sort"
 	"strconv"
-	"strings"
 
 	sp "github.com/scipipe/scipipe"
 	spcomp "github.com/scipipe/scipipe/components"
 )
 
 var (
-	plot       = flag.Bool("plot", false, "Plot graph and nothing more")
-	maxTasks   = flag.Int("maxtasks", 4, "Max number of local cores to use")
-	procsRegex = flag.String("procs", "align.*", "A regex specifying which processes (by name) to run up to")
+	plot     = flag.Bool("plot", false, "Plot graph and nothing more")
+	maxTasks = flag.Int("maxtasks", 4, "Max number of local cores to use")
+	//procsRegex = flag.String("procs", "align.*", "A regex specifying which processes (by name) to run up to")
 )
 
 func main() {
@@ -108,9 +106,30 @@ func main() {
 		starProcs[samplePrefix] = alignSamples
 
 		createIndex := wf.NewProc("create_index_"+samplePrefix, `../`+appsDir+`/samtools-1.3.1/samtools index {i:bam_aligned}`)
-		createIndex.SetOut("index", "{i:bam_aligned|%.bam}.bai")
+		createIndex.SetOut("index", "{i:bam_aligned}.bai")
 		createIndex.In("bam_aligned").From(alignSamples.Out("bam_aligned"))
+
+		// QualiMap
+		// mkdir -p "$tmpDir/rnaseqpre/qualimap/"
+		// $appsDir/QualiMap-2.2/qualimap rnaseq -pe -bam $tmpDir/rnaseqpre/star/SRR3222409.chr11.Aligned.sortedByCoord.out.bam -gtf $refDir/Mus_musculus.GRCm38.92.chr11.gtf --outdir $tmpDir/rnaseqpre/qualimap/ --java-mem-size=4G > /dev/null 2>&1
+		qcAlignment := wf.NewProc("qc_alignment", `../`+appsDir+`/QualiMap-2.2/qualimap rnaseq -pe \
+			-bam {i:bam_aligned} \
+			-gtf ../`+refDir+`/Mus_musculus.GRCm38.92.chr11.gtf \
+			--outdir `+tmpDir+`/rnaseqpre/qualimap/ \
+			--java-mem-size=4G &> {o:stdout}`)
+		qcAlignment.In("bam_aligned").From(alignSamples.Out("bam_aligned"))
+		qcAlignment.SetOut("stdout", "{i:bam_aligned|%.bam}.qualimap.stdout.log")
+
+		// FeatureCounts
+		// mkdir -p "$tmpDir/rnaseqpre/featurecounts/"
+		// $appsDir/subread-1.5.2/bin/featureCounts -p -a
+		// $refDir/Mus_musculus.GRCm38.92.chr11.gtf -t gene -g gene_id -s 0 -o
+		// "$tmpDir/rnaseqpre/featurecounts/tableCounts"
+		// $tmpDir/rnaseqpre/star/SRR3222409.chr11.Aligned.sortedByCoord.out.bam
 	}
+	// # MultiQC
+	// export PYTHONPATH=$appsDir/MultiQC-1.5/lib/python2.7/site-packages:$PYTHONPATH
+	// $appsDir/MultiQC-1.5/bin/multiqc -f -d $tmpDir/rnaseqpre/ -o $tmpDir/rnaseqpre/multiqc
 
 	// Handle missing flags
 	procNames := []string{}
@@ -118,12 +137,11 @@ func main() {
 		procNames = append(procNames, procName)
 	}
 	sort.Strings(procNames)
-	procNamesStr := strings.Join(procNames, "\n")
-	if *procsRegex == "" {
-		sp.Error.Println("You must specify a process name pattern. You can specify one of:" + procNamesStr)
-		flag.PrintDefaults()
-		os.Exit(1)
-	}
+	//procNamesStr := strings.Join(procNames, "\n")
+	//	sp.Error.Println("You must specify a process name pattern. You can specify one of:" + procNamesStr)
+	//	flag.PrintDefaults()
+	//	os.Exit(1)
+	//}
 
 	if *plot {
 		dotFile := "rnaseqpre.dot"
@@ -131,7 +149,7 @@ func main() {
 		fmt.Println("Wrote workflow graph to:", dotFile)
 		return
 	}
-	wf.RunToRegex(*procsRegex)
+	wf.Run()
 }
 
 // fs is a short-hand for fmt.Sprintf(), to make string interpolation code less
