@@ -13,6 +13,13 @@ A few use case workflows for the [SciPipe](http://scipipe.org) publication.
 ```
 ## Prerequisites
 
+All workflows require:
+
+- A unix like operating system (Linux or Mac)
+- The Go tool chain.
+  - See [this link](https://golang.org/dl/) for instructions on downloading and
+    installing Go.
+
 The cancer analysis, and RNA-seq workflows require a few bioinformatics tools installed on the system:
 
 - bwa
