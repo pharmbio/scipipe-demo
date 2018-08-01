@@ -112,7 +112,7 @@ func main() {
 		// QualiMap
 		// mkdir -p "$tmpDir/rnaseqpre/qualimap/"
 		// $appsDir/QualiMap-2.2/qualimap rnaseq -pe -bam $tmpDir/rnaseqpre/star/SRR3222409.chr11.Aligned.sortedByCoord.out.bam -gtf $refDir/Mus_musculus.GRCm38.92.chr11.gtf --outdir $tmpDir/rnaseqpre/qualimap/ --java-mem-size=4G > /dev/null 2>&1
-		qcAlignment := wf.NewProc("qc_alignment", `../`+appsDir+`/QualiMap-2.2/qualimap rnaseq -pe \
+		qcAlignment := wf.NewProc("qc_alignment_"+samplePrefix, `../`+appsDir+`/QualiMap-2.2/qualimap rnaseq -pe \
 			-bam {i:bam_aligned} \
 			-gtf ../`+refDir+`/Mus_musculus.GRCm38.92.chr11.gtf \
 			--outdir `+tmpDir+`/rnaseqpre/qualimap/ \
@@ -120,12 +120,14 @@ func main() {
 		qcAlignment.In("bam_aligned").From(alignSamples.Out("bam_aligned"))
 		qcAlignment.SetOut("stdout", "{i:bam_aligned|%.bam}.qualimap.stdout.log")
 
-		// FeatureCounts
-		// mkdir -p "$tmpDir/rnaseqpre/featurecounts/"
-		// $appsDir/subread-1.5.2/bin/featureCounts -p -a
-		// $refDir/Mus_musculus.GRCm38.92.chr11.gtf -t gene -g gene_id -s 0 -o
-		// "$tmpDir/rnaseqpre/featurecounts/tableCounts"
-		// $tmpDir/rnaseqpre/star/SRR3222409.chr11.Aligned.sortedByCoord.out.bam
+		// Count features
+		countFeatures := wf.NewProc("count_features_"+samplePrefix, `../`+appsDir+`/subread-1.5.2/bin/featureCounts -p \
+			-a ../`+refDir+`/Mus_musculus.GRCm38.92.chr11.gtf -t gene -g gene_id -s 0 \
+			-o {o:feature_counts} \
+			{i:bam_aligned} # Extra dependency: {i:index}`)
+		countFeatures.In("bam_aligned").From(alignSamples.Out("bam_aligned"))
+		countFeatures.In("index").From(createIndex.Out("index"))
+		countFeatures.SetOut("feature_counts", tmpDir+`/rnaseqpre/featurecounts/tableCounts`)
 	}
 	// # MultiQC
 	// export PYTHONPATH=$appsDir/MultiQC-1.5/lib/python2.7/site-packages:$PYTHONPATH
