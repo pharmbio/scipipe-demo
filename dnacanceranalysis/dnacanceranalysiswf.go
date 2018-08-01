@@ -33,7 +33,7 @@ func main() {
 	flag.Parse()
 	wf := sp.NewWorkflow("caw-preproc", *maxTasks)
 
-	downloadApps := wf.NewProc("download_apps", "wget http://uppnex.se/apps.tar.gz -O {o:apps}")
+	downloadApps := wf.NewProc("download_apps", "wget https://zenodo.org/record/1324426/files/scipipe-demo-apps.tar.gz?download=1 -O {o:apps}")
 	downloadApps.SetOut("apps", dataDir+"/apps.tar.gz")
 
 	unTgzApps := wf.NewProc("untgz_apps", "tar -zxvf {i:tgz} -C ../"+dataDir+" && echo untar_done > {o:done}")
