@@ -37,7 +37,7 @@ func main() {
 	unpackJars := dlWf.NewProc("unpack_tools", "mkdir {o:unpackdir} && tar -zxf {i:tarball} -C {o:unpackdir}")
 	unpackJars.SetOut("unpackdir", "bin")
 	unpackJars.In("tarball").From(downloadTools.Out("tarball"))
-	downloadRawData := dlWf.NewProc("download_rawdata", "wget https://raw.githubusercontent.com/pharmbio/bioimg-sciluigi-casestudy/master/roles/sciluigi_usecase/files/proj/largescale_svm/data/testrun_dataset.smi -O {o:dataset}")
+	downloadRawData := dlWf.NewProc("download_rawdata", "wget https://zenodo.org/record/1324443/files/testdataset.smi?download=1 -O {o:dataset}")
 	downloadRawData.SetOut("dataset", dataDir+"testdataset.smi")
 
 	crossValWF := NewCrossValidateWorkflow(*maxtasks, CrossValidateWorkflowParams{
