@@ -38,3 +38,18 @@ modern laptop with at least a few GB of storage available.
 
 The Cancer analysis workflow on the other hand, requires a large amount of
 RAM memory, at least 16GB.
+
+The number of cores used, can be modified on each of the workflows, by
+editing the `run.sh` script and adding or modifying the `-taxtasks [n]` flag.
+E.g:
+
+```bash
+go run workflow.go -maxtasks 4
+```
+
+or
+
+```bash
+go build -o workflow
+./workflow -maxtasks 4
+```
