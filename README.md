@@ -1,6 +1,6 @@
-# Use case workflows for SciPipe
+# Case study workflows for SciPipe
 
-A few use case workflows for the [SciPipe](http://scipipe.org) publication.
+A few case study workflows for the [SciPipe](http://scipipe.org) publication.
 
 ## Usage
 
