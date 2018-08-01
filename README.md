@@ -23,3 +23,11 @@ On Ubuntu, these can be installed with this command:
 ```bash
 sudo apt-get install -y samtools bwa
 ```
+
+## Resource requirements
+
+The RNA-seq and Drug Discovery workflows should be runnable on a reasonably
+modern laptop with at least a few GB of storage available.
+
+The Cancer analysis workflow on the other hand, requires a large amount of
+RAM memory, at least 16GB.
