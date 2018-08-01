@@ -98,18 +98,18 @@ func main() {
 				" --readFilesIn {i:reads1} {i:reads2} \\\n"+
 				fs(" --runThreadN %d \\\n", *maxTasks)+
 				" --readFilesCommand zcat \\\n"+
-				" --outFileNamePrefix $(s={o:bam_aligned}; echo ${s%.bam}) \\\n"+
+				" --outFileNamePrefix $(s={o:bam_aligned}; echo ${s%Aligned.sortedByCoord.out.bam}) \\\n"+
 				" --outSAMtype BAM SortedByCoordinate && echo done > {o:bam_aligned}.done # {i:fastqc|join: } ")
 		alignSamples.In("reads1").From(readsSourceFastQ1.Out())
 		alignSamples.In("reads2").From(readsSourceFastQ2.Out())
 		alignSamples.In("fastqc").From(strToSubstrs[samplePrefix].OutSubStream())
-		alignSamples.SetOut("bam_aligned", tmpDir+"/rnaseqpre/star/"+samplePrefix+".chr11.bam")
+		alignSamples.SetOut("bam_aligned", tmpDir+"/rnaseqpre/star/"+samplePrefix+".chr11.Aligned.sortedByCoord.out.bam")
 
 		starProcs[samplePrefix] = alignSamples
 
-		// STRINGTIE PER SAMPLE
-
-		// STRINGTIE MERGE, once for all samples
+		createIndex := wf.NewProc("create_index_"+samplePrefix, `../`+appsDir+`/samtools-1.3.1/samtools index {i:bam_aligned}`)
+		createIndex.SetOut("index", "{i:bam_aligned|%.bam}.bai")
+		createIndex.In("bam_aligned").From(alignSamples.Out("bam_aligned"))
 	}
 
 	// Handle missing flags
