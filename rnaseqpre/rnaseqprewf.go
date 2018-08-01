@@ -134,7 +134,7 @@ func main() {
 
 	// MultiQC
 	multiQC := wf.NewProc("create_multiqc_report", `export PYTHONPATH=../`+appsDir+`/MultiQC-1.5/lib/python2.7/site-packages:$PYTHONPATH && \
-		../`+appsDir+`/MultiQC-1.5/bin/multiqc -f \
+		multiqc -f \
 		-d ../`+tmpDir+`/rnaseqpre/ \
 		-o $(o={o:report}; echo ${o%/multiqc_report.html}) # Depend: {i:count_features|join: }`)
 	multiQC.In("count_features").From(featureCountS2SS.OutSubStream())
@@ -146,6 +146,7 @@ func main() {
 		procNames = append(procNames, procName)
 	}
 	sort.Strings(procNames)
+
 	//procNamesStr := strings.Join(procNames, "\n")
 	//	sp.Error.Println("You must specify a process name pattern. You can specify one of:" + procNamesStr)
 	//	flag.PrintDefaults()
