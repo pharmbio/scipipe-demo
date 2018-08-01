@@ -4,7 +4,7 @@ A few use case workflows for the [SciPipe](http://scipipe.org) publication.
 
 ## Usage
 
-1, Navigate into each of the case study workflow folders.
+1. Navigate into each of the case study workflow folders.
 
 2. Execute the `run.sh` script:
 
