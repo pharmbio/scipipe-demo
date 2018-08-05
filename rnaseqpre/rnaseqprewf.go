@@ -53,7 +53,6 @@ func main() {
 
 	for _, samplePrefix := range samplePrefixes {
 		samplePrefix := samplePrefix // Create local copy of variable. Needed to work around Go's funny behaviour of closures on loop variables
-		// si := strconv.Itoa(i)
 
 		strToSubstrs[samplePrefix] = spcomp.NewStreamToSubStream(wf, "collect_substream_"+samplePrefix)
 		for j := 1; j <= 2; j++ {
@@ -105,8 +104,6 @@ func main() {
 		createIndex.In("bam_aligned").From(alignSamples.Out("bam_aligned"))
 
 		// QualiMap
-		// mkdir -p "$tmpDir/rnaseqpre/qualimap/"
-		// $appsDir/QualiMap-2.2/qualimap rnaseq -pe -bam $tmpDir/rnaseqpre/star/SRR3222409.chr11.Aligned.sortedByCoord.out.bam -gtf $refDir/Mus_musculus.GRCm38.92.chr11.gtf --outdir $tmpDir/rnaseqpre/qualimap/ --java-mem-size=4G > /dev/null 2>&1
 		qcAlignment := wf.NewProc("qc_alignment_"+samplePrefix, `../`+appsDir+`/QualiMap-2.2/qualimap rnaseq -pe \
 			-bam {i:bam_aligned} \
 			-gtf ../`+refDir+`/Mus_musculus.GRCm38.92.chr11.gtf \
