@@ -31,14 +31,7 @@ On Ubuntu, these can be installed with this command:
 sudo apt-get install -y samtools bwa
 ```
 
-The RNA-Seq workflow requires Python 2.7.x and an installation of MultiQC.
-It is easiest installed with:
-
-```bash
-pip install -U multiqc
-```
-
-This should install some required packages like `numpy`, `enum34` and `matplotlib`.
+The RNA-Seq workflow requires Python 2.7.x.
 
 ## Resource requirements
 
