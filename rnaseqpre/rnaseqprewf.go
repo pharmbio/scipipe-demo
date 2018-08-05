@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
 
@@ -11,9 +12,9 @@ import (
 )
 
 var (
-	plot     = flag.Bool("plot", false, "Plot graph and nothing more")
-	maxTasks = flag.Int("maxtasks", 4, "Max number of local cores to use")
-	//procsRegex = flag.String("procs", "align.*", "A regex specifying which processes (by name) to run up to")
+	plot       = flag.Bool("plot", false, "Plot graph and nothing more")
+	maxTasks   = flag.Int("maxtasks", 4, "Max number of local cores to use")
+	procsRegex = flag.String("procs", "create_multiqc_report", "A regex specifying which processes (by name) to run up to")
 )
 
 func main() {
@@ -147,19 +148,20 @@ func main() {
 	}
 	sort.Strings(procNames)
 
-	//procNamesStr := strings.Join(procNames, "\n")
-	//	sp.Error.Println("You must specify a process name pattern. You can specify one of:" + procNamesStr)
-	//	flag.PrintDefaults()
-	//	os.Exit(1)
-	//}
-
 	if *plot {
 		dotFile := "rnaseqpre.dot"
 		wf.PlotGraph(dotFile)
 		fmt.Println("Wrote workflow graph to:", dotFile)
 		return
 	}
-	wf.Run()
+
+	procNamesStr := strings.Join(procNames, "\n")
+	if procNamesStr == "" {
+		sp.Error.Println("You must specify a process name pattern. You can specify one of:" + procNamesStr)
+		flag.PrintDefaults()
+		os.Exit(1)
+	}
+	wf.RunToRegex(*procsRegex)
 }
 
 // fs is a short-hand for fmt.Sprintf(), to make string interpolation code less
