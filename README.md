@@ -20,15 +20,16 @@ All workflows require:
   - See [this link](https://golang.org/dl/) for instructions on downloading and
     installing Go.
 
-The cancer analysis, and RNA-seq workflows require a few bioinformatics tools installed on the system:
+The cancer analysis, and RNA-seq workflows require a few bioinformatics tools and libraries installed on the system:
 
 - bwa
 - samtools
+- libgomp1
 
 On Ubuntu, these can be installed with this command:
 
 ```bash
-sudo apt-get install -y samtools bwa
+sudo apt-get install -y samtools bwa libgomp1
 ```
 
 The RNA-Seq workflow requires Python 2.7.x, for the final step (running
