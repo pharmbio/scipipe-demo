@@ -22,14 +22,14 @@ All workflows require:
 
 The cancer analysis, and RNA-seq workflows require a few bioinformatics tools and libraries installed on the system:
 
-- bwa
-- samtools
 - libgomp1
+- MultiQC
 
 On Ubuntu, these can be installed with this command:
 
 ```bash
-sudo apt-get install -y samtools bwa libgomp1
+sudo apt-get install -y libgomp1
+sudo pip install multiqc
 ```
 
 The RNA-Seq workflow requires Python 2.7.x, for the final step (running
