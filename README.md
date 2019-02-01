@@ -23,12 +23,13 @@ All workflows require:
 The cancer analysis, and RNA-seq workflows require a few bioinformatics tools and libraries installed on the system:
 
 - libgomp1
+- python 2.7.x
 - markupsafe
 
 On Ubuntu, these can be installed with this command:
 
 ```bash
-sudo apt-get install libgomp1
+sudo apt-get install libgomp1 python
 sudo pip install markupsafe
 ```
 
