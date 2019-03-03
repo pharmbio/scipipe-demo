@@ -1,5 +1,6 @@
-RNA Sequenceing Use case
-========================
+Machine Learning for Drug Discovery Use Case
+============================================
+
 
 Usage
 -----
