@@ -152,6 +152,9 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 		createReplCopy.InParam("replid").FromStr(replID)
 		createReplCopy.In("orig").From(genSign.OutSignatures())
 
+		// ------------------------------------------------------------------------
+		// Loop over sizes for the training set data
+		// ------------------------------------------------------------------------
 		for _, trainSize := range params.TrainSizes {
 			uniqRplTrs := uniqRpl + fs("_tr%d", trainSize)
 			selBestCostPerTrainSizeSubstr := spcomp.NewStreamToSubStream(wf, "select_cost"+uniqRplTrs)
@@ -216,12 +219,15 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 			shufTrain.InRandBytes().From(genRandBytes.OutRandBytes())
 
 			// ------------------------------------------------------------------------
-			// Loop over folds
+			// Loop over cost values to try
 			// ------------------------------------------------------------------------
 			for _, cost := range params.CostVals {
 				uniqRplTrsCst := uniqRplTrs + fs("_c%f", cost)
 				avgRMSDPerCostSubstr := spcomp.NewStreamToSubStream(wf, "cost_substr"+uniqRplTrsCst)
 
+				// ------------------------------------------------------------------------
+				// Loop over cross validation folds
+				// ------------------------------------------------------------------------
 				for foldIdx := 1; foldIdx <= params.FoldsCount; foldIdx++ {
 					uniqRplTrsCstFld := uniqRplTrsCst + fs("_fld%d", foldIdx)
 					createFolds := NewCreateFolds(wf, "createfolds"+uniqRplTrsCstFld,
@@ -263,7 +269,7 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 					assessLibLin.InParamCost().FromFloat(cost)
 
 					avgRMSDPerCostSubstr.In().From(assessLibLin.OutRMSDCost())
-				}
+				} // end for foldIdx
 
 				avgRMSD := wf.NewProc("avg_rmsd"+uniqRplTrsCst, `cat {i:rmsdcost|join: } | awk '{ c += $1; n++ } END { print c / n "\t" {p:cost} }' > {o:avgrmsd}`)
 				avgRMSD.SetOut("avgrmsd", "data/avg_rmsd/avg_rmsd"+uniqRplTrsCst+".txt")
@@ -324,13 +330,3 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 	} // end for replicate id
 	return &CrossValidateWorkflow{wf}
 }
-
-// ================================================================================
-// End: Main Workflow definition
-// ================================================================================
-
-//        mergedreport = self.new_task('merged_report_%s_%s' % (self.dataset_name, self.run_id), MergedDataReport,
-//                run_id = self.run_id)
-//        mergedreport.in_reports = [t.out_report for t in mainwfruns]
-//
-//        return mergedreport
