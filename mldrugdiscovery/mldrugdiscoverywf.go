@@ -228,7 +228,7 @@ func NewCrossValidateWorkflow(maxTasks int, params CrossValidateWorkflowParams) 
 				// ------------------------------------------------------------------------
 				// Loop over cross validation folds
 				// ------------------------------------------------------------------------
-				for foldIdx := 1; foldIdx <= params.FoldsCount; foldIdx++ {
+				for foldIdx := 0; foldIdx < params.FoldsCount; foldIdx++ {
 					uniqRplTrsCstFld := uniqRplTrsCst + fs("_fld%d", foldIdx)
 					createFolds := NewCreateFolds(wf, "createfolds"+uniqRplTrsCstFld,
 						CreateFoldsConf{
